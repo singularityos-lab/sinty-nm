@@ -1,0 +1,4 @@
+/sinty-nmd
+*.o
+*.test
+vendor/
