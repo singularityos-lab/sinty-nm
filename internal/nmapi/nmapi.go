@@ -51,8 +51,13 @@ func (s *Server) Export() error {
 			"AllDevices":              {Value: []dbus.ObjectPath{}, Writable: false, Emit: prop.EmitTrue},
 			"ActiveConnections":       {Value: []dbus.ObjectPath{}, Writable: false, Emit: prop.EmitTrue},
 			"NetworkingEnabled":       {Value: true, Writable: false, Emit: prop.EmitTrue},
+			// Writable radio flags: the desktop toggles wifi and airplane mode by
+			// setting these. Accept the set fast and apply it off the caller's
+			// critical path, so a sync client never blocks.
 			"WirelessEnabled":         {Value: true, Writable: true, Emit: prop.EmitTrue},
 			"WirelessHardwareEnabled": {Value: true, Writable: false, Emit: prop.EmitTrue},
+			"WwanEnabled":             {Value: true, Writable: true, Emit: prop.EmitTrue},
+			"WwanHardwareEnabled":     {Value: true, Writable: false, Emit: prop.EmitTrue},
 		},
 	}
 	p, err := prop.Export(s.conn, RootPath, propsSpec)
