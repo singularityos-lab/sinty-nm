@@ -71,7 +71,7 @@ type ScannedAP struct {
 	Strength  uint8
 	Frequency uint32 // MHz
 	Security  WifiSecurity
-	Known     bool // a saved/known network
+	Known     bool   // a saved/known network
 	Handle    string // backend-opaque reference (iwd network object path)
 }
 
