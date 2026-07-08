@@ -3,8 +3,10 @@ package rtnl
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -32,6 +34,7 @@ var hostOrder binary.ByteOrder = func() binary.ByteOrder {
 // Backend is the rtnetlink LinkBackend. The command socket serves request/ack
 // operations; dumps go through syscall.NetlinkRIB, and Subscribe opens its own socket.
 type Backend struct {
+	mu     sync.Mutex // serializes send+ack on the command socket
 	fd     int
 	kernel *syscall.SockaddrNetlink
 	seq    uint32
@@ -56,6 +59,8 @@ func (b *Backend) Close() error { return syscall.Close(b.fd) }
 // exec sends one request on the command socket and waits for its ack. NLM_F_REQUEST and
 // NLM_F_ACK are added here so the kernel always replies with an NLMSG_ERROR to sync on.
 func (b *Backend) exec(msgType, flags uint16, payload []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	seq := atomic.AddUint32(&b.seq, 1)
 	msg := buildMessage(msgType, flags|syscall.NLM_F_REQUEST|syscall.NLM_F_ACK, seq, payload)
 	if err := syscall.Sendto(b.fd, msg, 0, b.kernel); err != nil {
@@ -155,6 +160,15 @@ func (b *Backend) AddAddr(index int, ip net.IP, prefixLen int) error {
 	payload := ifAddrmsg(uint8(fam), prefixLen, index)
 	payload = appendAttr(payload, syscall.IFA_LOCAL, raw)
 	payload = appendAttr(payload, syscall.IFA_ADDRESS, raw)
+	if fam == syscall.AF_INET && prefixLen < 31 {
+		// Directed broadcast: local | ^mask, as `ip addr add` does for IPv4.
+		mask := net.CIDRMask(prefixLen, 32)
+		bcast := make([]byte, 4)
+		for i := range bcast {
+			bcast[i] = raw[i] | ^mask[i]
+		}
+		payload = appendAttr(payload, syscall.IFA_BROADCAST, bcast)
+	}
 	return b.exec(syscall.RTM_NEWADDR, syscall.NLM_F_CREATE|syscall.NLM_F_REPLACE, payload)
 }
 
@@ -168,6 +182,7 @@ func (b *Backend) FlushAddrs(index int) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	for _, m := range msgs {
 		if m.Header.Type != syscall.RTM_NEWADDR || len(m.Data) < syscall.SizeofIfAddrmsg {
 			continue
@@ -195,11 +210,12 @@ func (b *Backend) FlushAddrs(index int) error {
 		payload := ifAddrmsg(fam, prefix, index)
 		payload = appendAttr(payload, syscall.IFA_LOCAL, addr)
 		payload = appendAttr(payload, syscall.IFA_ADDRESS, addr)
+		// Best effort: keep deleting so one failure doesn't leave a half-flushed link.
 		if err := b.exec(syscall.RTM_DELADDR, 0, payload); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // AddRoute installs a route via RTM_NEWROUTE. A nil r.Dst is the default route, whose
@@ -260,8 +276,9 @@ func (b *Backend) route(msgType, flags uint16, index int, r core.RouteInfo) erro
 	return b.exec(msgType, flags, payload)
 }
 
-// Subscribe opens a second socket in the RTMGRP_LINK group and delivers link
-// add/change (up=true) and remove (up=false) events until ctx is cancelled.
+// Subscribe opens a second socket in the RTMGRP_LINK group and delivers link events
+// until ctx is cancelled. The bool means present (RTM_NEWLINK, also fired on link
+// changes such as down) vs removed (RTM_DELLINK); read li.Up/li.Carrier for up/down.
 func (b *Backend) Subscribe(ctx context.Context, fn func(core.LinkInfo, bool)) error {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, syscall.NETLINK_ROUTE)
 	if err != nil {
@@ -271,10 +288,13 @@ func (b *Backend) Subscribe(ctx context.Context, fn func(core.LinkInfo, bool)) e
 		syscall.Close(fd)
 		return fmt.Errorf("rtnl: event bind: %w", err)
 	}
+	var closeOnce sync.Once
+	closeFd := func() { closeOnce.Do(func() { syscall.Close(fd) }) }
+	defer closeFd()
 	// Closing the fd on cancellation unblocks the Recvfrom below.
 	go func() {
 		<-ctx.Done()
-		syscall.Close(fd)
+		closeFd()
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -282,6 +302,11 @@ func (b *Backend) Subscribe(ctx context.Context, fn func(core.LinkInfo, bool)) e
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			// ENOBUFS is a multicast overrun (events were dropped, socket still
+			// works); EINTR is a plain interrupted read. Neither ends the stream.
+			if err == syscall.ENOBUFS || err == syscall.EINTR {
+				continue
 			}
 			return err
 		}
