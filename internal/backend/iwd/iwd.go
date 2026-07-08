@@ -36,27 +36,81 @@ type managedObjects map[dbus.ObjectPath]map[string]map[string]dbus.Variant
 type Backend struct {
 	conn  *dbus.Conn
 	agent *agent
+
+	mu         sync.Mutex
+	registered bool // agent registered with the current iwd name owner
 }
 
 // New builds the backend and registers the secret agent with iwd. If iwd is not yet on
 // the bus the agent registration is skipped silently; the backend then reports empty
-// lists until iwd appears, rather than failing.
+// lists until iwd appears, and re-registers the agent when it does.
 func New(conn *dbus.Conn) (*Backend, error) {
 	b := &Backend{
 		conn:  conn,
 		agent: &agent{pending: make(map[dbus.ObjectPath]func() (string, error))},
 	}
-	// A failure here is almost always "iwd not on the bus yet"; not fatal.
+	// A failure here is almost always "iwd not on the bus yet"; not fatal, the
+	// NameOwnerChanged watch below registers again once iwd shows up.
 	_ = b.registerAgent()
+	if err := b.watchIwdOwner(); err != nil {
+		return nil, err
+	}
 	return b, nil
 }
 
+// registerAgent exports and registers the secret agent with iwd. It is idempotent per
+// iwd name owner; watchIwdOwner clears the flag when the owner changes.
 func (b *Backend) registerAgent() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.registered {
+		return nil
+	}
 	if err := b.conn.Export(b.agent, agentPath, ifaceAgent); err != nil {
 		return err
 	}
-	return b.conn.Object(Dest, agentManagerPath).
+	err := b.conn.Object(Dest, agentManagerPath).
 		Call(ifaceAgentManager+".RegisterAgent", 0, agentPath).Err
+	if err != nil {
+		return err
+	}
+	b.registered = true
+	return nil
+}
+
+// watchIwdOwner tracks net.connman.iwd on the bus and re-registers the agent with each
+// new owner, covering both the boot race (iwd not up yet) and iwd restarts.
+func (b *Backend) watchIwdOwner() error {
+	opts := []dbus.MatchOption{
+		dbus.WithMatchSender("org.freedesktop.DBus"),
+		dbus.WithMatchInterface("org.freedesktop.DBus"),
+		dbus.WithMatchMember("NameOwnerChanged"),
+		dbus.WithMatchArg(0, Dest),
+	}
+	if err := b.conn.AddMatchSignal(opts...); err != nil {
+		return err
+	}
+	ch := make(chan *dbus.Signal, 16)
+	b.conn.Signal(ch)
+	go func() {
+		for sig := range ch {
+			if sig.Name != "org.freedesktop.DBus.NameOwnerChanged" || len(sig.Body) < 3 {
+				continue
+			}
+			name, _ := sig.Body[0].(string)
+			newOwner, _ := sig.Body[2].(string)
+			if name != Dest {
+				continue
+			}
+			b.mu.Lock()
+			b.registered = false
+			b.mu.Unlock()
+			if newOwner != "" {
+				_ = b.registerAgent()
+			}
+		}
+	}()
+	return nil
 }
 
 // objects returns the full iwd object tree, or an empty map if iwd is unreachable.
@@ -116,7 +170,11 @@ func (b *Backend) OrderedNetworks(dev string) ([]core.ScannedAP, error) {
 	objs := b.objects()
 	out := make([]core.ScannedAP, 0, len(ranked))
 	for _, n := range ranked {
-		props := objs[n.Path][ifaceNetwork]
+		props, ok := objs[n.Path][ifaceNetwork]
+		if !ok {
+			// Network vanished between GetOrderedNetworks and the snapshot (scan race).
+			continue
+		}
 		out = append(out, core.ScannedAP{
 			SSID:     []byte(variantString(props["Name"])),
 			Strength: signalToPercent(n.Signal),
@@ -133,6 +191,8 @@ func (b *Backend) OrderedNetworks(dev string) ([]core.ScannedAP, error) {
 // the callback resolves the right secret. Network.Connect blocks until iwd is associated
 // or returns an error.
 func (b *Backend) Connect(dev string, ssid []byte, secret core.SecretFunc) error {
+	// Catch up on a missed registration; open networks still work if this fails.
+	_ = b.registerAgent()
 	netPath, err := b.findNetwork(dev, ssid)
 	if err != nil {
 		return err
