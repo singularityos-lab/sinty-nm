@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +22,11 @@ const marker = "# managed by sinty-nm"
 // reading after three, so extra entries would be silently ignored.
 const maxNameservers = 3
 
+// maxSearchDomains and maxSearchChars cap the search line: glibc (MAXDNSRCH) stops at
+// six domains and about 256 characters, so anything past that would be ignored anyway.
+const maxSearchDomains = 6
+const maxSearchChars = 256
+
 // dnsManager merges per-interface DNS contributions into a single resolv.conf.
 type dnsManager struct {
 	mu      sync.Mutex
@@ -37,6 +43,9 @@ func NewDNS() core.DNSManager {
 func (m *dnsManager) Set(entry core.DNSEntry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Copy the slices so a caller mutating them later cannot corrupt our state.
+	entry.Nameservers = append([]net.IP(nil), entry.Nameservers...)
+	entry.Domains = append([]string(nil), entry.Domains...)
 	m.entries[entry.Iface] = entry
 	return m.rewrite()
 }
@@ -67,7 +76,7 @@ func (m *dnsManager) render() []byte {
 	seen := make(map[string]bool)
 	for _, e := range entries {
 		for _, ns := range e.Nameservers {
-			if ns == nil {
+			if len(ns) == 0 || ns.To16() == nil {
 				continue
 			}
 			s := ns.String()
@@ -92,6 +101,17 @@ func (m *dnsManager) render() []byte {
 			}
 			dseen[d] = true
 			domains = append(domains, d)
+		}
+	}
+	if len(domains) > maxSearchDomains {
+		domains = domains[:maxSearchDomains]
+	}
+	total := 0
+	for i, d := range domains {
+		total += len(d) + 1
+		if total > maxSearchChars {
+			domains = domains[:i]
+			break
 		}
 	}
 

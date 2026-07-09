@@ -119,11 +119,11 @@ func (r *rfkill) Subscribe(ctx context.Context, fn func(soft, hard bool)) error 
 	}
 	defer syscall.Close(fd)
 
+	// Opening the subscription fd queues an ADD burst for the current switches; drain it
+	// before taking the snapshot so a change landing in between is not swallowed.
+	consumeEvents(fd)
 	lastSoft, lastHard, _ := readWLANState()
 	fn(lastSoft, lastHard)
-	// Opening the subscription fd queues an ADD burst for the current switches; consume
-	// it so the first tick does not re-report the baseline already delivered above.
-	consumeEvents(fd)
 
 	ticker := time.NewTicker(rfkillPollInterval)
 	defer ticker.Stop()
@@ -148,7 +148,8 @@ func (r *rfkill) Subscribe(ctx context.Context, fn func(soft, hard bool)) error 
 }
 
 // consumeEvents drains all pending records on a non-blocking fd, reporting whether any
-// non-DEL WLAN event was seen (a hint that the aggregate state may have moved).
+// WLAN event was seen (a hint that the aggregate state may have moved). DEL counts too:
+// removing the last blocked switch changes the aggregate.
 func consumeEvents(fd int) bool {
 	buf := make([]byte, rfkillEventSize)
 	seen := false
@@ -164,7 +165,7 @@ func consumeEvents(fd int) bool {
 			break
 		}
 		ev := decodeEvent(buf)
-		if ev.typ == rfkillTypeWLAN && ev.op != rfkillOpDel {
+		if ev.typ == rfkillTypeWLAN {
 			seen = true
 		}
 	}

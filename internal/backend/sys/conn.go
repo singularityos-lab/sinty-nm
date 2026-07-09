@@ -5,16 +5,15 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
 )
 
-// defaultProbeURL is Ubuntu's connectivity endpoint. It answers HTTP 204 (No Content)
-// with an empty body when reachability is unimpeded; a captive portal instead answers
-// with a 3xx redirect to, or a 200 login page in place of, that empty response. Kept
-// http:// (not https) on purpose so a portal can intercept it.
+// defaultProbeURL is Ubuntu's connectivity endpoint. Its contract: HTTP 204 (No Content)
+// with an empty body when reachability is unimpeded. A captive portal instead answers
+// with a 3xx redirect or any other substituted response (typically a 200 login page).
+// Kept http:// (not https) on purpose so a portal can intercept it.
 const defaultProbeURL = "http://connectivity-check.ubuntu.com/"
 
 const probeTimeout = 5 * time.Second
@@ -53,8 +52,9 @@ func NewConnChecker(url string) core.ConnChecker {
 // Check probes the endpoint and maps the outcome onto an NM connectivity state:
 //
 //	ConnNone    - transport failure (no route, DNS failure, timeout).
-//	ConnPortal  - a redirect, or a 2xx whose body looks like an injected login page.
-//	ConnFull    - the expected clean 2xx with an empty/short non-HTML body.
+//	ConnPortal  - a redirect, or any 2xx other than the contracted 204-empty reply
+//	              (a portal substituting its own page for the probe response).
+//	ConnFull    - exactly the endpoint's contract: 204 with an empty body.
 //	ConnLimited - reachable, but the probe returned an unexpected status (4xx/5xx).
 func (c *connChecker) Check(ctx context.Context) (core.Connectivity, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
@@ -69,28 +69,11 @@ func (c *connChecker) Check(ctx context.Context) (core.Connectivity, error) {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxProbeBody))
 
 	switch {
-	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return core.ConnPortal, nil
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		if looksLikePortal(body) {
-			return core.ConnPortal, nil
-		}
+	case resp.StatusCode == http.StatusNoContent && len(body) == 0:
 		return core.ConnFull, nil
+	case resp.StatusCode >= 200 && resp.StatusCode < 400:
+		return core.ConnPortal, nil
 	default:
 		return core.ConnLimited, nil
 	}
-}
-
-// looksLikePortal decides whether a 2xx body is a captive-portal login page rather than
-// the endpoint's expected empty/short marker. The heuristic: HTML markup, or anything
-// implausibly long, is a portal.
-func looksLikePortal(body []byte) bool {
-	t := strings.ToLower(strings.TrimSpace(string(body)))
-	if t == "" {
-		return false
-	}
-	if strings.Contains(t, "<html") || strings.Contains(t, "<!doctype") || strings.Contains(t, "<meta") {
-		return true
-	}
-	return len(t) > 512
 }
