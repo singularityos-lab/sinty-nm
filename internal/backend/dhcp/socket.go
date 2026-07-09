@@ -63,9 +63,10 @@ func (s *rawSock) send(dhcp []byte) error {
 	return syscall.Sendto(s.fd, frame, 0, dst)
 }
 
-// recvReply reads IPv4/UDP DHCP packets until one matches xid and the wanted message type,
-// or the deadline passes. It ignores unrelated traffic and yields to ctx cancellation.
-func (s *rawSock) recvReply(ctx context.Context, xid uint32, want byte, budget time.Duration) (*reply, error) {
+// recvReply reads IPv4/UDP DHCP packets until one matches xid and one of the wanted
+// message types, or the deadline passes. It ignores unrelated traffic and yields to ctx
+// cancellation.
+func (s *rawSock) recvReply(ctx context.Context, xid uint32, budget time.Duration, wants ...byte) (*reply, error) {
 	deadline := time.Now().Add(budget)
 	buf := make([]byte, 2048)
 	for {
@@ -99,16 +100,29 @@ func (s *rawSock) recvReply(ctx context.Context, xid uint32, want byte, budget t
 		if err != nil {
 			continue
 		}
-		if r.xid != xid || r.msgType() != want {
+		if r.xid != xid || !wanted(r.msgType(), wants) {
 			continue
 		}
 		return r, nil
 	}
 }
 
+// wanted reports whether t is one of the message types in wants.
+func wanted(t byte, wants []byte) bool {
+	for _, w := range wants {
+		if t == w {
+			return true
+		}
+	}
+	return false
+}
+
 // setReadTimeout arms SO_RCVTIMEO so Recvfrom returns EAGAIN after d.
 func (s *rawSock) setReadTimeout(d time.Duration) error {
 	tv := syscall.NsecToTimeval(int64(d))
+	if tv.Sec == 0 && tv.Usec == 0 {
+		tv.Usec = 1 // a zero timeval disables the timeout; floor at 1us
+	}
 	return syscall.SetsockoptTimeval(s.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv)
 }
 

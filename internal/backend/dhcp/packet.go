@@ -15,6 +15,7 @@ const (
 	msgOffer    = 2
 	msgRequest  = 3
 	msgAck      = 5
+	msgNak      = 6
 	msgRelease  = 7
 
 	optSubnetMask  = 1
@@ -150,7 +151,10 @@ func (r *reply) toLease() (*core.Lease, error) {
 		ServerID: r.opt4(optServerID),
 	}
 	if m, ok := r.opts[optSubnetMask]; ok && len(m) == 4 {
-		ones, _ := net.IPv4Mask(m[0], m[1], m[2], m[3]).Size()
+		ones, bits := net.IPv4Mask(m[0], m[1], m[2], m[3]).Size()
+		if ones == 0 && bits == 0 {
+			return nil, errors.New("ack has non-contiguous subnet mask")
+		}
 		lease.PrefixLen = ones
 	}
 	if v, ok := r.opts[optDNS]; ok {

@@ -17,6 +17,10 @@ const perTry = 4 * time.Second
 // maxTries bounds the DISCOVER->ACK attempts within a single Acquire (ctx still wins).
 const maxTries = 5
 
+// errNAK marks a handshake declined by the server, so Acquire restarts from DISCOVER
+// immediately instead of sleeping out the backoff.
+var errNAK = errors.New("request declined (NAK)")
+
 // leaseState is the minimal per-interface memory kept so Release can unicast a matching
 // DHCPRELEASE to the server that granted the lease.
 type leaseState struct {
@@ -76,6 +80,9 @@ func (c *Client) Acquire(ctx context.Context, ifname string, mac net.HardwareAdd
 			return lease, nil
 		}
 		lastErr = err
+		if errors.Is(err, errNAK) || try == maxTries-1 {
+			continue
+		}
 		// linear backoff between full attempts, still yielding to ctx.
 		select {
 		case <-ctx.Done():
@@ -100,7 +107,7 @@ func (c *Client) handshake(ctx context.Context, sock *rawSock, mac net.HardwareA
 	if err := sock.send(discover); err != nil {
 		return nil, err
 	}
-	offer, err := sock.recvReply(ctx, xid, msgOffer, perTry)
+	offer, err := sock.recvReply(ctx, xid, perTry, msgOffer)
 	if err != nil {
 		return nil, err
 	}
@@ -114,11 +121,21 @@ func (c *Client) handshake(ctx context.Context, sock *rawSock, mac net.HardwareA
 	if err := sock.send(request); err != nil {
 		return nil, err
 	}
-	ack, err := sock.recvReply(ctx, xid, msgAck, perTry)
+	ack, err := sock.recvReply(ctx, xid, perTry, msgAck, msgNak)
 	if err != nil {
 		return nil, err
 	}
-	return ack.toLease()
+	if ack.msgType() == msgNak {
+		return nil, errNAK
+	}
+	lease, err := ack.toLease()
+	if err != nil {
+		return nil, err
+	}
+	if lease.ServerID == nil {
+		lease.ServerID = serverID // ACK omitted option 54; keep the offer's for Release
+	}
+	return lease, nil
 }
 
 // Release sends a DHCPRELEASE for the last lease tracked on ifname, unicast to the server
