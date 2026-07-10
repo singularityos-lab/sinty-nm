@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 
@@ -14,14 +15,31 @@ import (
 	"github.com/singularityos-lab/sinty-nm/internal/backend/rtnl"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/sys"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/wg"
+	"github.com/singularityos-lab/sinty-nm/internal/core"
 	"github.com/singularityos-lab/sinty-nm/internal/nmapi"
 )
+
+// connectBus waits for the system bus to accept connections, retrying through the boot
+// window where dbus.service has been spawned but its socket is not serving yet.
+func connectBus() (*dbus.Conn, error) {
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		conn, err := dbus.ConnectSystemBus()
+		if err == nil {
+			return conn, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
 
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("sinty-nmd: ")
 
-	conn, err := dbus.ConnectSystemBus()
+	conn, err := connectBus()
 	if err != nil {
 		log.Fatalf("system bus: %v", err)
 	}
@@ -50,9 +68,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("wireguard backend: %v", err)
 	}
-	rfk, err := sys.NewRFKill()
-	if err != nil {
-		log.Fatalf("rfkill backend: %v", err)
+
+	var rfk core.RFKill
+	if r, err := sys.NewRFKill(); err == nil {
+		rfk = r
+	} else {
+		// No /dev/rfkill (kernel without CONFIG_RFKILL, or a VM with no radio): the
+		// radio is simply never blocked. Everything else keeps working.
+		log.Printf("rfkill unavailable (%v); running without radio kill switch", err)
+		rfk = sys.NewNullRFKill()
 	}
 
 	backends := nmapi.Backends{

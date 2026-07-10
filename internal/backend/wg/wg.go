@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -16,16 +17,30 @@ import (
 
 // Backend configures WireGuard interfaces. It satisfies core.WGBackend.
 type Backend struct {
+	mu sync.Mutex
 	wg *wgctrl.Client
 }
 
-// New opens a wgctrl client over the wireguard netlink family.
+// New builds the backend. The wgctrl client is opened lazily on first use, so a kernel
+// without the wireguard family does not prevent the daemon from starting; the error
+// surfaces at Configure time instead.
 func New() (*Backend, error) {
+	return &Backend{}, nil
+}
+
+// client returns the wgctrl client, opening it on first use.
+func (b *Backend) client() (*wgctrl.Client, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.wg != nil {
+		return b.wg, nil
+	}
 	c, err := wgctrl.New()
 	if err != nil {
 		return nil, fmt.Errorf("wg: open wgctrl: %w", err)
 	}
-	return &Backend{wg: c}, nil
+	b.wg = c
+	return c, nil
 }
 
 // Configure ensures a wireguard link named ifname exists, applies cfg to it, and brings
@@ -47,7 +62,11 @@ func (b *Backend) Configure(ifname string, cfg core.WGConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := b.wg.ConfigureDevice(ifname, wc); err != nil {
+	c, cerr := b.client()
+	if cerr != nil {
+		return cerr
+	}
+	if err := c.ConfigureDevice(ifname, wc); err != nil {
 		return fmt.Errorf("wg: configure %q: %w", ifname, err)
 	}
 	return setUp(ifname)

@@ -205,3 +205,20 @@ func readWLANState() (soft, hard bool, err error) {
 	}
 	return soft, hard, nil
 }
+
+// nullRFKill is the degraded rfkill used when /dev/rfkill is absent (kernel without
+// CONFIG_RFKILL, or a VM with no radio). It reports the radio as never blocked and
+// accepts toggles as no-ops, so the daemon and the NM surface stay fully up.
+type nullRFKill struct{}
+
+// NewNullRFKill returns the no-op rfkill fallback.
+func NewNullRFKill() core.RFKill { return nullRFKill{} }
+
+func (nullRFKill) WifiSoftBlocked() (bool, error) { return false, nil }
+func (nullRFKill) WifiHardBlocked() (bool, error) { return false, nil }
+func (nullRFKill) SetWifiBlocked(bool) error      { return nil }
+func (nullRFKill) Subscribe(ctx context.Context, fn func(soft, hard bool)) error {
+	fn(false, false)
+	<-ctx.Done()
+	return ctx.Err()
+}
