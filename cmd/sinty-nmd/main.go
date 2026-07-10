@@ -20,8 +20,14 @@ import (
 )
 
 // connectBus waits for the system bus to accept connections, retrying through the boot
-// window where dbus.service has been spawned but its socket is not serving yet.
+// window where dbus.service has been spawned but its socket is not serving yet. The godbus
+// default address is /var/run/dbus/system_bus_socket, which only resolves where /var/run
+// is a symlink to /run; on a system with a real /var partition that path does not exist,
+// so we pin the canonical /run path unless the environment overrides it.
 func connectBus() (*dbus.Conn, error) {
+	if os.Getenv("DBUS_SYSTEM_BUS_ADDRESS") == "" {
+		os.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket")
+	}
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		conn, err := dbus.ConnectSystemBus()

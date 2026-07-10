@@ -7,6 +7,7 @@ After=iwd.service
 
 [Service]
 Type=dbus
+Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
 BusName=org.freedesktop.NetworkManager
 ExecStart=/usr/bin/sinty-nmd
 Restart=on-failure
