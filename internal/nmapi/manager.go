@@ -33,6 +33,7 @@ type Manager struct {
 
 	rootProps *prop.Properties
 	settings  *Settings
+	om        *objectManager
 
 	devGen pathGen
 	apGen  pathGen
@@ -67,6 +68,7 @@ func New(conn *dbus.Conn, b Backends) (*Manager, error) {
 		primary:      nullPath,
 		ctx:          context.Background(),
 	}
+	m.om = newObjectManager(m)
 
 	s, err := newSettings(m)
 	if err != nil {
@@ -89,6 +91,9 @@ func New(conn *dbus.Conn, b Backends) (*Manager, error) {
 // (access points, active connections, IP configs) export themselves as they are created.
 // The well-known name is owned by main before Export runs.
 func (m *Manager) Export() error {
+	if err := m.om.export(); err != nil {
+		return err
+	}
 	propsSpec := prop.Map{
 		RootIface: {
 			"Version":                 {Value: Version, Writable: false, Emit: prop.EmitConst},
@@ -110,6 +115,7 @@ func (m *Manager) Export() error {
 		return err
 	}
 	m.rootProps = p
+	m.om.add(RootPath, RootIface, p)
 
 	mapping := map[string]string{"NMState": "state"}
 	if err := m.conn.ExportWithMap(m, mapping, RootPath, RootIface); err != nil {

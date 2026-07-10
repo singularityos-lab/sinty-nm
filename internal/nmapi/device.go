@@ -121,6 +121,10 @@ func (d *Device) export() error {
 		return err
 	}
 	d.props = p
+	d.m.om.add(d.path, ifaceDevice, p)
+	if sub := d.subIface(); sub != "" {
+		d.m.om.add(d.path, sub, p)
+	}
 
 	if err := d.m.conn.Export(d, d.path, ifaceDevice); err != nil {
 		return err
@@ -135,6 +139,7 @@ func (d *Device) export() error {
 
 // unexport removes the device object from the bus.
 func (d *Device) unexport() {
+	d.m.om.remove(d.path)
 	_ = d.m.conn.Export(nil, d.path, ifaceDevice)
 	if sub := d.subIface(); sub != "" {
 		_ = d.m.conn.Export(nil, d.path, sub)

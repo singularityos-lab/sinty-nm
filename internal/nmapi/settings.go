@@ -101,6 +101,7 @@ func (s *Settings) export() error {
 		return err
 	}
 	s.props = p
+	s.m.om.add(SettingsPath, ifaceSettings, p)
 	if err := s.m.conn.Export(s, SettingsPath, ifaceSettings); err != nil {
 		return err
 	}
@@ -274,8 +275,22 @@ func (s *Settings) connPathsLocked() []dbus.ObjectPath {
 	return out
 }
 
-// export publishes the profile object with its methods and introspection.
+// export publishes the profile object with its methods, its property table (libnm reads
+// Unsaved/Flags/Filename through the object manager), and introspection.
 func (sc *SettingsConnection) export() error {
+	spec := prop.Map{
+		ifaceConnection: {
+			"Unsaved":  {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"Flags":    {Value: uint32(0), Writable: false, Emit: prop.EmitTrue},
+			"Filename": {Value: sc.file, Writable: false, Emit: prop.EmitTrue},
+		},
+	}
+	p, err := prop.Export(sc.s.m.conn, sc.path, spec)
+	if err != nil {
+		return err
+	}
+	sc.props = p
+	sc.s.m.om.add(sc.path, ifaceConnection, p)
 	if err := sc.s.m.conn.Export(sc, sc.path, ifaceConnection); err != nil {
 		return err
 	}
@@ -303,7 +318,9 @@ func (sc *SettingsConnection) export() error {
 
 // unexport removes the profile object from the bus.
 func (sc *SettingsConnection) unexport() {
+	sc.s.m.om.remove(sc.path)
 	_ = sc.s.m.conn.Export(nil, sc.path, ifaceConnection)
+	_ = sc.s.m.conn.Export(nil, sc.path, "org.freedesktop.DBus.Properties")
 	_ = sc.s.m.conn.Export(nil, sc.path, "org.freedesktop.DBus.Introspectable")
 }
 

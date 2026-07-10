@@ -67,6 +67,7 @@ func (ac *ActiveConnection) export() error {
 		return err
 	}
 	ac.props = p
+	ac.m.om.add(ac.path, ifaceActive, p)
 
 	node := &introspect.Node{
 		Name: string(ac.path),
@@ -86,6 +87,7 @@ func (ac *ActiveConnection) export() error {
 
 // unexport removes the ActiveConnection object.
 func (ac *ActiveConnection) unexport() {
+	ac.m.om.remove(ac.path)
 	_ = ac.m.conn.Export(nil, ac.path, "org.freedesktop.DBus.Properties")
 	_ = ac.m.conn.Export(nil, ac.path, "org.freedesktop.DBus.Introspectable")
 }

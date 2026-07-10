@@ -63,6 +63,7 @@ func (ap *AccessPoint) export() error {
 		return err
 	}
 	ap.props = p
+	ap.m.om.add(ap.path, ifaceAP, p)
 
 	node := &introspect.Node{
 		Name: string(ap.path),
@@ -77,6 +78,7 @@ func (ap *AccessPoint) export() error {
 
 // unexport removes the AP object from the bus.
 func (ap *AccessPoint) unexport() {
+	ap.m.om.remove(ap.path)
 	_ = ap.m.conn.Export(nil, ap.path, "org.freedesktop.DBus.Properties")
 	_ = ap.m.conn.Export(nil, ap.path, "org.freedesktop.DBus.Introspectable")
 }

@@ -108,6 +108,7 @@ func (ip *IPConfig) export() error {
 		return err
 	}
 	ip.props = p
+	ip.m.om.add(ip.path, ip.iface, p)
 	node := &introspect.Node{
 		Name: string(ip.path),
 		Interfaces: []introspect.Interface{
@@ -121,6 +122,7 @@ func (ip *IPConfig) export() error {
 
 // unexport removes the IPConfig object.
 func (ip *IPConfig) unexport() {
+	ip.m.om.remove(ip.path)
 	_ = ip.m.conn.Export(nil, ip.path, "org.freedesktop.DBus.Properties")
 	_ = ip.m.conn.Export(nil, ip.path, "org.freedesktop.DBus.Introspectable")
 }
