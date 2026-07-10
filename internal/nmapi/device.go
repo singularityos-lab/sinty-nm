@@ -73,6 +73,10 @@ func (d *Device) export() error {
 	spec := prop.Map{
 		ifaceDevice: {
 			"DeviceType":           {Value: d.nmType, Writable: false, Emit: prop.EmitConst},
+			"Real":                 {Value: true, Writable: false, Emit: prop.EmitConst},
+			"HwAddress":            {Value: d.mac, Writable: false, Emit: prop.EmitTrue},
+			"Capabilities":         {Value: uint32(1), Writable: false, Emit: prop.EmitConst}, // NM_DEVICE_CAP_NM_SUPPORTED
+			"Driver":               {Value: "", Writable: false, Emit: prop.EmitConst},
 			"State":                {Value: d.state, Writable: false, Emit: prop.EmitTrue},
 			"StateReason":          {Value: deviceStateReason{d.state, devReasonNone}, Writable: false, Emit: prop.EmitTrue},
 			"Interface":            {Value: d.iface, Writable: false, Emit: prop.EmitTrue},

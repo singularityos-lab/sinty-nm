@@ -84,15 +84,11 @@ func New(conn *dbus.Conn, b Backends) (*Manager, error) {
 	return m, nil
 }
 
-// Export requests the NM well-known name and publishes the whole object tree: the root
-// manager, the Settings store with its connections, and every discovered device with its
-// sub-interfaces. Dynamic objects (access points, active connections, IP configs) export
-// themselves as they are created.
+// Export publishes the whole object tree: the root manager, the Settings store with its
+// connections, and every discovered device with its sub-interfaces. Dynamic objects
+// (access points, active connections, IP configs) export themselves as they are created.
+// The well-known name is owned by main before Export runs.
 func (m *Manager) Export() error {
-	if _, err := m.conn.RequestName(BusName, dbus.NameFlagAllowReplacement|dbus.NameFlagReplaceExisting); err != nil {
-		return err
-	}
-
 	propsSpec := prop.Map{
 		RootIface: {
 			"Version":                 {Value: Version, Writable: false, Emit: prop.EmitConst},

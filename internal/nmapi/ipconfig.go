@@ -77,13 +77,20 @@ func (m *Manager) newIP4Config(l *core.Lease) *IPConfig {
 	return ip
 }
 
+// ip6Addr is NM's legacy IP6Config address tuple, signature (ayuay).
+type ip6Addr struct {
+	Address []byte
+	Prefix  uint32
+	Gateway []byte
+}
+
 // newIP6ConfigEmpty builds a minimal, empty IP6Config (link-local only path). Full IPv6
 // address reporting is a follow-up; clients that read it get correct empty defaults.
 func (m *Manager) newIP6ConfigEmpty() *IPConfig {
 	ip := &IPConfig{m: m, path: m.ipGen.next(prefixIP6), iface: ifaceIP6}
 	ip.spec = prop.Map{
 		ifaceIP6: {
-			"Addresses":   {Value: [][]interface{}{}, Writable: false, Emit: prop.EmitTrue},
+			"Addresses":   {Value: []ip6Addr{}, Writable: false, Emit: prop.EmitTrue},
 			"AddressData": {Value: []map[string]dbus.Variant{}, Writable: false, Emit: prop.EmitTrue},
 			"Gateway":     {Value: "", Writable: false, Emit: prop.EmitTrue},
 			"Nameservers": {Value: [][]byte{}, Writable: false, Emit: prop.EmitTrue},
