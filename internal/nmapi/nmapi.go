@@ -9,8 +9,10 @@ const (
 	RootPath  = dbus.ObjectPath("/org/freedesktop/NetworkManager")
 	RootIface = "org.freedesktop.NetworkManager"
 
-	// Version is reported on the root Version property.
-	Version = "sinty-nm 0.1 (NM-compatible)"
+	// Version is reported on the root Version property. libnm (nmcli, the desktop applet)
+	// warns "versions do not match" unless this tracks the NM release whose API we speak,
+	// so we report that release: the compatibility contract is the API, not our own tag.
+	Version = "1.52.1"
 )
 
 // NM global State values (org.freedesktop.NetworkManager.State), matching NM's enum so
