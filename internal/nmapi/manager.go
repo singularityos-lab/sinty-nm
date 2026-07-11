@@ -279,8 +279,12 @@ func (m *Manager) ActivateConnection(connection, device, specificObject dbus.Obj
 	return ac.path, nil
 }
 
-// AddAndActivateConnection persists a new profile and immediately activates it.
+// AddAndActivateConnection persists a new profile and immediately activates it. Per NM
+// semantics the settings may be PARTIAL: clients (the shell's connect_to_ap builds only
+// the wireless+security sections) rely on the daemon completing the connection from the
+// device and the specific object, so missing pieces are filled in before validation.
 func (m *Manager) AddAndActivateConnection(settings map[string]map[string]dbus.Variant, device, specificObject dbus.ObjectPath) (dbus.ObjectPath, dbus.ObjectPath, *dbus.Error) {
+	m.completeSettings(settings, device, specificObject)
 	sc, err := m.settings.add(settings)
 	if err != nil {
 		return nullPath, nullPath, dbus.MakeFailedError(err)
@@ -294,6 +298,101 @@ func (m *Manager) AddAndActivateConnection(settings map[string]map[string]dbus.V
 		return sc.path, nullPath, dbus.MakeFailedError(err)
 	}
 	return sc.path, ac.path, nil
+}
+
+// completeSettings fills the gaps of a partial AddAndActivateConnection payload the way
+// NM does: a "connection" section with type inferred from the sections present, an id
+// derived from the SSID (or interface kind), and the SSID itself taken from the specific
+// object's access point when the client only pointed at the AP.
+func (m *Manager) completeSettings(settings map[string]map[string]dbus.Variant, device, specificObject dbus.ObjectPath) {
+	if settings == nil {
+		return
+	}
+	connType := ""
+	switch {
+	case settings["802-11-wireless"] != nil || settings["802-11-wireless-security"] != nil:
+		connType = "802-11-wireless"
+	case settings["wireguard"] != nil:
+		connType = "wireguard"
+	case settings["802-3-ethernet"] != nil:
+		connType = "802-3-ethernet"
+	}
+	if connType == "" && device != "" && device != nullPath {
+		m.mu.Lock()
+		if d := m.devByPath[device]; d != nil {
+			switch d.kind {
+			case core.KindWifi:
+				connType = "802-11-wireless"
+			case core.KindEthernet:
+				connType = "802-3-ethernet"
+			case core.KindWireGuard:
+				connType = "wireguard"
+			}
+		}
+		m.mu.Unlock()
+	}
+
+	if connType == "802-11-wireless" {
+		if settings["802-11-wireless"] == nil {
+			settings["802-11-wireless"] = map[string]dbus.Variant{}
+		}
+		g := settings["802-11-wireless"]
+		if _, ok := g["ssid"]; !ok {
+			if ssid := m.apSSID(device, specificObject); len(ssid) > 0 {
+				g["ssid"] = dbus.MakeVariant(ssid)
+			}
+		}
+	}
+
+	if settings["connection"] == nil {
+		settings["connection"] = map[string]dbus.Variant{}
+	}
+	c := settings["connection"]
+	if variantString(c, "type") == "" && connType != "" {
+		c["type"] = dbus.MakeVariant(connType)
+	}
+	if variantString(c, "id") == "" {
+		id := ""
+		if g := settings["802-11-wireless"]; g != nil {
+			if b, ok := g["ssid"].Value().([]byte); ok {
+				id = string(b)
+			} else if s, ok := g["ssid"].Value().(string); ok {
+				id = s
+			}
+		}
+		if id == "" {
+			id = "connection"
+		}
+		c["id"] = dbus.MakeVariant(id)
+	}
+}
+
+// apSSID resolves the SSID of the access point at path on the given device (or any
+// device when the device path is unspecific). Empty when the AP is unknown.
+func (m *Manager) apSSID(device, apPath dbus.ObjectPath) []byte {
+	if apPath == "" || apPath == nullPath {
+		return nil
+	}
+	m.mu.Lock()
+	devs := make([]*Device, 0, len(m.devices))
+	if d := m.devByPath[device]; d != nil {
+		devs = append(devs, d)
+	} else {
+		devs = append(devs, m.devices...)
+	}
+	m.mu.Unlock()
+	for _, d := range devs {
+		d.mu.Lock()
+		for _, ap := range d.aps {
+			if ap.path == apPath {
+				ssid := append([]byte(nil), ap.ssid...)
+				d.mu.Unlock()
+				return ssid
+			}
+		}
+		d.mu.Unlock()
+	}
+	return nil
 }
 
 // DeactivateConnection tears down an active connection and drops it.

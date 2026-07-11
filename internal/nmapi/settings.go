@@ -3,6 +3,7 @@ package nmapi
 import (
 	"crypto/rand"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -187,9 +188,12 @@ func (s *Settings) add(settings map[string]map[string]dbus.Variant) (*SettingsCo
 	if id == "" {
 		id = uuid
 	}
+	// Persistence is best-effort: on the immutable image /etc may be read-only, and a
+	// profile that cannot be saved must still activate (it just does not survive reboot).
 	file := filepath.Join(systemConnDir, sanitize(id)+".nmconnection")
 	if err := writeKeyfile(file, settings); err != nil {
-		return nil, err
+		log.Printf("settings: cannot persist %s: %v (profile stays in-memory)", id, err)
+		file = ""
 	}
 	sc := s.newConnection(settings, file)
 	s.mu.Lock()
