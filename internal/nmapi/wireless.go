@@ -25,33 +25,37 @@ func (d *Device) populateAPs() {
 		return
 	}
 
+	// Key by the backend Handle (the iwd Network object path): it is unique and stable
+	// per network, whereas BSSID is empty for iwd (a Network aggregates its BSSes and
+	// exposes no single MAC). Keying by BSSID collapsed every network onto the "" key,
+	// so only one survived and the list showed a single AP.
 	d.mu.Lock()
-	old := d.apByBSSID
+	old := d.apByHandle
 	newList := make([]*AccessPoint, 0, len(nets))
-	newByBSSID := make(map[string]*AccessPoint, len(nets))
+	newByHandle := make(map[string]*AccessPoint, len(nets))
 	var added []*AccessPoint
 	seen := make(map[string]bool, len(nets))
 	for _, n := range nets {
-		seen[n.BSSID] = true
-		if ap, ok := old[n.BSSID]; ok {
+		seen[n.Handle] = true
+		if ap, ok := old[n.Handle]; ok {
 			ap.update(n)
-			newByBSSID[n.BSSID] = ap
+			newByHandle[n.Handle] = ap
 			newList = append(newList, ap)
 			continue
 		}
 		ap := newAccessPoint(d.m, n)
-		newByBSSID[n.BSSID] = ap
+		newByHandle[n.Handle] = ap
 		newList = append(newList, ap)
 		added = append(added, ap)
 	}
 	var removed []*AccessPoint
-	for b, ap := range old {
-		if !seen[b] {
+	for h, ap := range old {
+		if !seen[h] {
 			removed = append(removed, ap)
 		}
 	}
 	d.aps = newList
-	d.apByBSSID = newByBSSID
+	d.apByHandle = newByHandle
 	paths := make([]dbus.ObjectPath, 0, len(newList))
 	for _, ap := range newList {
 		paths = append(paths, ap.path)

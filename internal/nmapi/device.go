@@ -32,7 +32,7 @@ type Device struct {
 
 	mu         sync.Mutex
 	aps        []*AccessPoint
-	apByBSSID  map[string]*AccessPoint
+	apByHandle  map[string]*AccessPoint
 	activeAP   dbus.ObjectPath
 	activeConn dbus.ObjectPath
 	ip4        dbus.ObjectPath
@@ -53,7 +53,7 @@ func newDevice(m *Manager, li core.LinkInfo) *Device {
 		nmType:     deviceTypeFor(li.Kind),
 		mac:        li.MAC,
 		managed:    li.Kind != core.KindLoopback,
-		apByBSSID:  map[string]*AccessPoint{},
+		apByHandle:  map[string]*AccessPoint{},
 		activeAP:   nullPath,
 		activeConn: nullPath,
 		ip4:        nullPath,
