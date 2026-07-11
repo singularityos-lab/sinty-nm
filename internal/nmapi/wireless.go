@@ -8,8 +8,16 @@ import (
 
 // scanAndPopulate powers the radio, triggers a backend scan, and refreshes the AP list.
 // GetOrderedNetworks only returns what a completed scan found, so a scan must run first;
-// SetPowered is a no-op when the radio is already up.
+// SetPowered is a no-op when the radio is already up. While the device is mid-activation
+// the scan is skipped entirely: a scan issued during association aborts the handshake,
+// which made every connect fail as long as the rescan loop was running.
 func (d *Device) scanAndPopulate() {
+	d.mu.Lock()
+	activating := d.state >= devStatePrepare && d.state < devStateActivated
+	d.mu.Unlock()
+	if activating {
+		return
+	}
 	_ = d.m.b.Wifi.SetPowered(d.iface, true)
 	_ = d.m.b.Wifi.Scan(d.iface)
 	d.populateAPs()
