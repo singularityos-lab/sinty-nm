@@ -248,10 +248,7 @@ func (d *Device) RequestScan(options map[string]dbus.Variant) *dbus.Error {
 	if d.kind != core.KindWifi {
 		return dbus.NewError("org.freedesktop.NetworkManager.Device.NotAllowed", []interface{}{"not a wifi device"})
 	}
-	go func() {
-		_ = d.m.b.Wifi.Scan(d.iface)
-		d.populateAPs()
-	}()
+	go d.scanAndPopulate()
 	return nil
 }
 

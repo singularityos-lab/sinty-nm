@@ -6,7 +6,16 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// populateAPs scans the backend's ordered network list for this wifi device and
+// scanAndPopulate powers the radio, triggers a backend scan, and refreshes the AP list.
+// GetOrderedNetworks only returns what a completed scan found, so a scan must run first;
+// SetPowered is a no-op when the radio is already up.
+func (d *Device) scanAndPopulate() {
+	_ = d.m.b.Wifi.SetPowered(d.iface, true)
+	_ = d.m.b.Wifi.Scan(d.iface)
+	d.populateAPs()
+}
+
+// populateAPs reads the backend's ordered network list for this wifi device and
 // reconciles the AccessPoint object set: new APs are exported and announced, vanished
 // ones are unexported, survivors are refreshed in place. The AccessPoints property is
 // republished with the live ordered paths.

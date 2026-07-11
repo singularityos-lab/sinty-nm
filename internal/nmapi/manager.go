@@ -169,9 +169,13 @@ func (m *Manager) Run(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
+	// Power each wifi radio up and kick an initial scan so the AP list is populated at
+	// startup (GetOrderedNetworks only returns what a scan already found). Then keep
+	// rescanning on a slow cadence so the list stays fresh while the desktop is open.
 	for _, d := range wifiDevs {
-		d.populateAPs()
+		d.scanAndPopulate()
 	}
+	go m.rescanLoop(ctx, wifiDevs)
 
 	m.pollConnectivity(ctx)
 	ticker := time.NewTicker(30 * time.Second)
@@ -182,6 +186,23 @@ func (m *Manager) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			m.pollConnectivity(ctx)
+		}
+	}
+}
+
+// rescanLoop periodically re-scans every wifi device so the AP list reflects the current
+// airspace without a client having to call RequestScan.
+func (m *Manager) rescanLoop(ctx context.Context, wifiDevs []*Device) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, d := range wifiDevs {
+				d.scanAndPopulate()
+			}
 		}
 	}
 }
