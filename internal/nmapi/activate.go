@@ -3,6 +3,7 @@ package nmapi
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 
 	"github.com/godbus/dbus/v5"
@@ -117,6 +118,7 @@ func (m *Manager) activate(sc *SettingsConnection, dev *Device, specific dbus.Ob
 func (m *Manager) runActivation(ac *ActiveConnection, sc *SettingsConnection, dev *Device) {
 	ctx := m.runCtx()
 	if err := m.bringUp(ctx, ac, sc, dev); err != nil {
+		log.Printf("activation of %s on %s failed: %v", sc.id, dev.iface, err)
 		dev.setState(devStateFailed, devReasonNone)
 		ac.setState(acStateDeactivated, devReasonNone)
 		return
