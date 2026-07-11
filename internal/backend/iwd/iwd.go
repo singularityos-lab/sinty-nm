@@ -3,12 +3,18 @@ package iwd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
 )
+
+// scanWait bounds how long Scan blocks waiting for iwd's channel sweep to finish before
+// the caller reads OrderedNetworks.
+const scanWait = 8 * time.Second
 
 // Dest is the iwd well-known bus name (system bus).
 const Dest = "net.connman.iwd"
@@ -172,13 +178,51 @@ func (b *Backend) SetPowered(dev string, on bool) error {
 		SetProperty(ifaceDevice+".Powered", dbus.MakeVariant(on))
 }
 
-// Scan triggers a Station scan; results are read later via OrderedNetworks.
+// Scan triggers a Station scan and blocks until the channel sweep completes, so the
+// caller's OrderedNetworks read reflects the full result set. iwd's Scan method returns
+// as soon as scanning STARTS; reading immediately yields only the APs already cached (in
+// a busy area often just the single strongest one), which looked like an empty or
+// stuck-on-one list.
 func (b *Backend) Scan(dev string) error {
 	path, err := b.devicePath(dev)
 	if err != nil {
 		return err
 	}
-	return b.conn.Object(Dest, path).Call(ifaceStation+".Scan", 0).Err
+	err = b.conn.Object(Dest, path).Call(ifaceStation+".Scan", 0).Err
+	// A scan already in flight is not an error: just wait for it to finish.
+	if err != nil && !isScanBusy(err) {
+		return err
+	}
+	b.awaitScanComplete(path)
+	return nil
+}
+
+// isScanBusy reports whether err is iwd's "a scan is already running" rejection.
+func isScanBusy(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "InProgress") || strings.Contains(s, "Busy") || strings.Contains(s, "Already")
+}
+
+// awaitScanComplete blocks until the station's Scanning property has gone true and then
+// false (bounded by scanWait). If scanning never becomes visibly active within a second
+// the station already had fresh results, so it returns instead of stalling.
+func (b *Backend) awaitScanComplete(path dbus.ObjectPath) {
+	start := time.Now()
+	sawScanning := false
+	for time.Since(start) < scanWait {
+		v, err := b.conn.Object(Dest, path).GetProperty(ifaceStation + ".Scanning")
+		if err != nil {
+			return
+		}
+		if scanning, _ := v.Value().(bool); scanning {
+			sawScanning = true
+		} else if sawScanning {
+			return
+		} else if time.Since(start) > time.Second {
+			return
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
 }
 
 // orderedNetwork is one entry of Station.GetOrderedNetworks: (network path, signal).

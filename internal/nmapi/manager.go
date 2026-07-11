@@ -173,7 +173,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	// startup (GetOrderedNetworks only returns what a scan already found). Then keep
 	// rescanning on a slow cadence so the list stays fresh while the desktop is open.
 	for _, d := range wifiDevs {
-		d.scanAndPopulate()
+		go d.scanAndPopulate()
 	}
 	go m.rescanLoop(ctx, wifiDevs)
 
