@@ -142,15 +142,43 @@ func (b *Backend) ListDevices() ([]core.WifiDevice, error) {
 	return out, nil
 }
 
+// devicePath resolves a kernel interface name (e.g. "wlan0") to the iwd object path that
+// carries its Device/Station interfaces. nmapi keys wifi devices by netdev name, exactly
+// as the link/dhcp/wg backends do; iwd addresses them by object path, so every inbound
+// call translates here. A single iwd object exposes both Device.* and Station.*, so the
+// returned path is valid for both.
+func (b *Backend) devicePath(name string) (dbus.ObjectPath, error) {
+	for path, ifaces := range b.objects() {
+		if variantString(ifaces[ifaceDevice]["Name"]) == name {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("iwd: no device for interface %q", name)
+}
+
+// deviceName maps an iwd device/station object path back to the kernel interface name
+// nmapi keys devices by; empty when the object has gone away.
+func (b *Backend) deviceName(path dbus.ObjectPath) string {
+	return variantString(b.objects()[path][ifaceDevice]["Name"])
+}
+
 // SetPowered toggles the Device.Powered property.
 func (b *Backend) SetPowered(dev string, on bool) error {
-	return b.conn.Object(Dest, dbus.ObjectPath(dev)).
+	path, err := b.devicePath(dev)
+	if err != nil {
+		return err
+	}
+	return b.conn.Object(Dest, path).
 		SetProperty(ifaceDevice+".Powered", dbus.MakeVariant(on))
 }
 
 // Scan triggers a Station scan; results are read later via OrderedNetworks.
 func (b *Backend) Scan(dev string) error {
-	return b.conn.Object(Dest, dbus.ObjectPath(dev)).Call(ifaceStation+".Scan", 0).Err
+	path, err := b.devicePath(dev)
+	if err != nil {
+		return err
+	}
+	return b.conn.Object(Dest, path).Call(ifaceStation+".Scan", 0).Err
 }
 
 // orderedNetwork is one entry of Station.GetOrderedNetworks: (network path, signal).
@@ -161,8 +189,12 @@ type orderedNetwork struct {
 
 // OrderedNetworks returns the device's visible networks, iwd-ranked best first.
 func (b *Backend) OrderedNetworks(dev string) ([]core.ScannedAP, error) {
+	path, err := b.devicePath(dev)
+	if err != nil {
+		return nil, err
+	}
 	var ranked []orderedNetwork
-	err := b.conn.Object(Dest, dbus.ObjectPath(dev)).
+	err = b.conn.Object(Dest, path).
 		Call(ifaceStation+".GetOrderedNetworks", 0).Store(&ranked)
 	if err != nil {
 		return nil, err
@@ -204,7 +236,11 @@ func (b *Backend) Connect(dev string, ssid []byte, secret core.SecretFunc) error
 
 // Disconnect tears down the current association on the device's Station.
 func (b *Backend) Disconnect(dev string) error {
-	return b.conn.Object(Dest, dbus.ObjectPath(dev)).Call(ifaceStation+".Disconnect", 0).Err
+	path, err := b.devicePath(dev)
+	if err != nil {
+		return err
+	}
+	return b.conn.Object(Dest, path).Call(ifaceStation+".Disconnect", 0).Err
 }
 
 // Forget removes the saved profile for ssid by calling Forget on its KnownNetwork.
@@ -222,7 +258,11 @@ func (b *Backend) Forget(dev string, ssid []byte) error {
 
 // State reports the device's Station.State, normalized.
 func (b *Backend) State(dev string) (core.WifiState, error) {
-	v, err := b.conn.Object(Dest, dbus.ObjectPath(dev)).GetProperty(ifaceStation + ".State")
+	path, err := b.devicePath(dev)
+	if err != nil {
+		return core.WifiDisconnected, err
+	}
+	v, err := b.conn.Object(Dest, path).GetProperty(ifaceStation + ".State")
 	if err != nil {
 		return core.WifiDisconnected, err
 	}
@@ -295,10 +335,13 @@ func (b *Backend) dispatch(sig *dbus.Signal, fn func(core.WifiEvent)) {
 	}
 }
 
-func (b *Backend) emit(fn func(core.WifiEvent), dev, rawState string) {
-	ev := core.WifiEvent{Device: dev, State: stateOf(rawState)}
+// emit builds a WifiEvent from an iwd object path. The path identifies the object to iwd,
+// but nmapi keys devices by netdev name, so the event carries the resolved name; the raw
+// path is still used to read the connected network.
+func (b *Backend) emit(fn func(core.WifiEvent), devPath, rawState string) {
+	ev := core.WifiEvent{Device: b.deviceName(dbus.ObjectPath(devPath)), State: stateOf(rawState)}
 	if ev.State == core.WifiConnected {
-		ev.ConnectedSSID = b.connectedSSID(dbus.ObjectPath(dev))
+		ev.ConnectedSSID = b.connectedSSID(dbus.ObjectPath(devPath))
 	}
 	fn(ev)
 }
@@ -322,13 +365,17 @@ func (b *Backend) connectedSSID(dev dbus.ObjectPath) []byte {
 
 // findNetwork locates the Network object on dev whose SSID matches ssid.
 func (b *Backend) findNetwork(dev string, ssid []byte) (dbus.ObjectPath, error) {
+	devPath, err := b.devicePath(dev)
+	if err != nil {
+		return "", err
+	}
 	want := string(ssid)
 	for path, ifaces := range b.objects() {
 		props, ok := ifaces[ifaceNetwork]
 		if !ok {
 			continue
 		}
-		if variantPath(props["Device"]) != dbus.ObjectPath(dev) {
+		if variantPath(props["Device"]) != devPath {
 			continue
 		}
 		if variantString(props["Name"]) == want {
