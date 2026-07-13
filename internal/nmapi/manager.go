@@ -173,11 +173,11 @@ func (m *Manager) Run(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
-	// Ethernet present at boot with carrier (desktop/dock, QEMU virtio-net): bring it up
-	// with DHCP now. Wifi self-associates via iwd; wired has no equivalent, so without this
-	// a wired-only machine boots with no network.
+	// Ethernet present at boot (desktop/dock, QEMU virtio-net): raise the link so carrier can
+	// be sensed, then DHCP. Wifi self-associates via iwd; wired has no equivalent, so without
+	// this a wired-only machine boots with no network.
 	for _, d := range ethDevs {
-		go m.autoConnectWired(d)
+		go m.manageWired(d)
 	}
 	// Power each wifi radio up and kick an initial scan so the AP list is populated at
 	// startup (GetOrderedNetworks only returns what a scan already found). Then keep

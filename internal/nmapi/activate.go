@@ -56,7 +56,7 @@ func (m *Manager) onLinkEvent(li core.LinkInfo, up bool) {
 		d.populateAPs()
 	}
 	if d.kind == core.KindEthernet {
-		go m.autoConnectWired(d) // a wired device just appeared with carrier: bring it online
+		go m.manageWired(d) // a wired device appeared: raise the link, sense carrier, autoconnect
 	}
 }
 
