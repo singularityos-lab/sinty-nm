@@ -163,12 +163,22 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	m.mu.Lock()
 	wifiDevs := make([]*Device, 0)
+	ethDevs := make([]*Device, 0)
 	for _, d := range m.devices {
-		if d.kind == core.KindWifi {
+		switch d.kind {
+		case core.KindWifi:
 			wifiDevs = append(wifiDevs, d)
+		case core.KindEthernet:
+			ethDevs = append(ethDevs, d)
 		}
 	}
 	m.mu.Unlock()
+	// Ethernet present at boot with carrier (desktop/dock, QEMU virtio-net): bring it up
+	// with DHCP now. Wifi self-associates via iwd; wired has no equivalent, so without this
+	// a wired-only machine boots with no network.
+	for _, d := range ethDevs {
+		go m.autoConnectWired(d)
+	}
 	// Power each wifi radio up and kick an initial scan so the AP list is populated at
 	// startup (GetOrderedNetworks only returns what a scan already found). Then keep
 	// rescanning on a slow cadence so the list stays fresh while the desktop is open.

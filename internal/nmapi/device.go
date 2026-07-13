@@ -40,6 +40,8 @@ type Device struct {
 	dhcp4      dbus.ObjectPath
 	ip4obj     *IPConfig
 	state      uint32
+	carrier    bool // last-known link carrier (ethernet)
+	autoWired  bool // a default wired autoconnect has been kicked for the current carrier
 }
 
 // newDevice builds an unexported Device from a link.
@@ -60,6 +62,7 @@ func newDevice(m *Manager, li core.LinkInfo) *Device {
 		ip6:        nullPath,
 		dhcp4:      nullPath,
 		state:      devStateDisconnected,
+		carrier:    li.Carrier,
 	}
 	if !d.managed {
 		d.state = devStateUnmanaged
@@ -310,7 +313,23 @@ func (d *Device) refreshAvailable() {
 
 // updateLink applies changed link facts (carrier) to the device props.
 func (d *Device) updateLink(li core.LinkInfo) {
-	if d.props != nil && d.kind == core.KindEthernet {
+	if d.kind != core.KindEthernet {
+		return
+	}
+	if d.props != nil {
 		d.props.SetMust(ifaceWired, "Carrier", li.Carrier)
+	}
+	d.mu.Lock()
+	was := d.carrier
+	d.carrier = li.Carrier
+	if !li.Carrier {
+		d.autoWired = false // cable unplugged: allow a fresh autoconnect on the next carrier
+	}
+	d.mu.Unlock()
+	// Carrier just came up (cable plugged, or link negotiated at boot): bring the wired
+	// link online the way NM's default wired autoconnect does. onLinkEvent handles the
+	// device-first-seen case; this handles a later carrier transition on a known device.
+	if li.Carrier && !was {
+		go d.m.autoConnectWired(d)
 	}
 }

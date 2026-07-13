@@ -55,6 +55,9 @@ func (m *Manager) onLinkEvent(li core.LinkInfo, up bool) {
 	if d.kind == core.KindWifi {
 		d.populateAPs()
 	}
+	if d.kind == core.KindEthernet {
+		go m.autoConnectWired(d) // a wired device just appeared with carrier: bring it online
+	}
 }
 
 // onWifiEvent reflects backend wifi state transitions onto the device object and, on a
