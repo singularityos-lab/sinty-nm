@@ -49,7 +49,10 @@ type Backend struct {
 
 // New builds the backend and registers the secret agent with iwd. If iwd is not yet on
 // the bus the agent registration is skipped silently; the backend then reports empty
-// lists until iwd appears, and re-registers the agent when it does.
+// lists until iwd appears, and re-registers the agent when it does. Calls to the
+// optional service must not ask D-Bus to auto-start it: on a wired-only machine the
+// iwd systemd unit is intentionally conditionally skipped, and auto-start turns that
+// normal absence into D-Bus's 25-second activation timeout.
 func New(conn *dbus.Conn) (*Backend, error) {
 	b := &Backend{
 		conn:  conn,
@@ -76,7 +79,7 @@ func (b *Backend) registerAgent() error {
 		return err
 	}
 	err := b.conn.Object(Dest, agentManagerPath).
-		Call(ifaceAgentManager+".RegisterAgent", 0, agentPath).Err
+		Call(ifaceAgentManager+".RegisterAgent", dbus.FlagNoAutoStart, agentPath).Err
 	if err != nil {
 		return err
 	}
@@ -123,7 +126,7 @@ func (b *Backend) watchIwdOwner() error {
 func (b *Backend) objects() managedObjects {
 	var objs managedObjects
 	err := b.conn.Object(Dest, "/").
-		Call(ifaceObjectManager+".GetManagedObjects", 0).Store(&objs)
+		Call(ifaceObjectManager+".GetManagedObjects", dbus.FlagNoAutoStart).Store(&objs)
 	if err != nil {
 		return managedObjects{}
 	}
