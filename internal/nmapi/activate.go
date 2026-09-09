@@ -174,6 +174,18 @@ func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, dev *
 	if err != nil {
 		return err
 	}
+	// AddAddr(NLM_F_REPLACE) only replaces an existing entry that matches the
+	// exact address being added -- it does nothing to any OTHER address already
+	// on the link. A fresh lease with a different IP than whatever is currently
+	// configured (a prior boot's lease that the client re-applied without
+	// reconfirming with the server, a stale manual address, a renewal that moved
+	// to a different address) stacks instead of replacing, leaving the link with
+	// multiple live addresses and the wrong one still primary for outbound
+	// traffic. deactivate() already flushes before tearing down; configureDHCP
+	// must flush before building the fresh L3 config too, for the same reason.
+	if err := m.b.Link.FlushAddrs(dev.index); err != nil {
+		return fmt.Errorf("flush addrs before applying lease: %w", err)
+	}
 	if err := m.b.Link.AddAddr(dev.index, lease.IP, lease.PrefixLen); err != nil {
 		return err
 	}
