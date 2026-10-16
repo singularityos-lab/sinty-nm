@@ -172,7 +172,10 @@ func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, dev *
 	mac, _ := net.ParseMAC(dev.mac)
 	lease, err := m.b.DHCP.Acquire(ctx, dev.iface, mac)
 	if err != nil {
-		return err
+		if dev.kind != core.KindEthernet || ctx.Err() != nil || len(mac) != 6 {
+			return err
+		}
+		lease = core.LinkLocalLease(mac)
 	}
 	if err := m.b.Link.FlushAddrs(dev.index); err != nil {
 		return fmt.Errorf("flush addrs before applying lease: %w", err)
