@@ -161,7 +161,7 @@ func (m *Manager) bringUp(ctx context.Context, ac *ActiveConnection, sc *Setting
 		}
 		return m.configureDHCP(ctx, ac, dev)
 	case core.KindWireGuard:
-		return m.b.WG.Configure(dev.iface, sc.wgConfig())
+		return m.bringUpWireGuard(ac, sc, dev)
 	default:
 		return fmt.Errorf("unsupported device kind for %s", dev.iface)
 	}
@@ -211,6 +211,7 @@ func (m *Manager) deactivate(ac *ActiveConnection) {
 		case core.KindWifi:
 			_ = m.b.Wifi.Disconnect(dev.iface)
 		case core.KindWireGuard:
+			m.tearDownWireGuard(ac)
 			_ = m.b.WG.Remove(dev.iface)
 		}
 		_ = m.b.Link.FlushAddrs(dev.index)

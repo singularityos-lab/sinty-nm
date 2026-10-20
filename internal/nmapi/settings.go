@@ -412,18 +412,6 @@ func (sc *SettingsConnection) ipv4Method() string {
 	return "auto"
 }
 
-// wgConfig extracts a WireGuard configuration from the profile.
-func (sc *SettingsConnection) wgConfig() core.WGConfig {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-	g := sc.settings["wireguard"]
-	cfg := core.WGConfig{}
-	if g == nil {
-		return cfg
-	}
-	cfg.PrivateKey = variantString(g, "private-key")
-	return cfg
-}
 
 // kindMatchesType reports whether a device kind can carry a profile of connType.
 func kindMatchesType(k core.DeviceKind, connType string) bool {
@@ -573,8 +561,21 @@ func keyfileValue(v dbus.Variant) string {
 	case string:
 		return val
 	default:
-		return fmt.Sprint(val)
+		return "@" + v.Signature().String() + " " + v.String()
 	}
+}
+
+func keyfileVariant(val string) dbus.Variant {
+	if strings.HasPrefix(val, "@") {
+		if sp := strings.IndexByte(val, ' '); sp > 1 {
+			if sig, err := dbus.ParseSignature(val[1:sp]); err == nil {
+				if v, err := dbus.ParseVariant(val[sp+1:], sig); err == nil {
+					return v
+				}
+			}
+		}
+	}
+	return dbus.MakeVariant(val)
 }
 
 // readKeyfile parses an NM-style keyfile into a settings map. Group names are mapped back
@@ -606,7 +607,7 @@ func readKeyfile(path string) (map[string]map[string]dbus.Variant, error) {
 			out[group][key] = dbus.MakeVariant([]byte(val))
 			continue
 		}
-		out[group][key] = dbus.MakeVariant(val)
+		out[group][key] = keyfileVariant(val)
 	}
 	return out, nil
 }

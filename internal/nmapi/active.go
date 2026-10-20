@@ -14,17 +14,18 @@ type ActiveConnection struct {
 	path  dbus.ObjectPath
 	props *prop.Properties
 
-	conn     dbus.ObjectPath
-	specific dbus.ObjectPath
-	uuid     string
-	id       string
-	typ      string
-	device   *Device
-	state    uint32
-	isDflt   bool
-	ip4      dbus.ObjectPath
-	ip6      dbus.ObjectPath
-	adopted  bool
+	conn      dbus.ObjectPath
+	specific  dbus.ObjectPath
+	uuid      string
+	id        string
+	typ       string
+	device    *Device
+	state     uint32
+	isDflt    bool
+	ip4       dbus.ObjectPath
+	ip6       dbus.ObjectPath
+	adopted   bool
+	vpnRoutes []vpnRoute
 }
 
 // newActiveConnection builds an unexported ActiveConnection in the activating state.

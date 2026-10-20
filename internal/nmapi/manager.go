@@ -279,6 +279,13 @@ func (m *Manager) ActivateConnection(connection, device, specificObject dbus.Obj
 		return nullPath, dbus.NewError("org.freedesktop.NetworkManager.UnknownConnection", []interface{}{"no such connection"})
 	}
 	dev := m.resolveDevice(device, sc)
+	if dev == nil && sc.connType() == "wireguard" {
+		d, err := m.ensureWireGuardDevice(sc)
+		if err != nil {
+			return nullPath, dbus.MakeFailedError(err)
+		}
+		dev = d
+	}
 	if dev == nil {
 		return nullPath, dbus.NewError("org.freedesktop.NetworkManager.UnknownDevice", []interface{}{"no suitable device"})
 	}
@@ -300,6 +307,13 @@ func (m *Manager) AddAndActivateConnection(settings map[string]map[string]dbus.V
 		return nullPath, nullPath, dbus.MakeFailedError(err)
 	}
 	dev := m.resolveDevice(device, sc)
+	if dev == nil && sc.connType() == "wireguard" {
+		d, err := m.ensureWireGuardDevice(sc)
+		if err != nil {
+			return sc.path, nullPath, dbus.MakeFailedError(err)
+		}
+		dev = d
+	}
 	if dev == nil {
 		return sc.path, nullPath, dbus.NewError("org.freedesktop.NetworkManager.UnknownDevice", []interface{}{"no suitable device"})
 	}
