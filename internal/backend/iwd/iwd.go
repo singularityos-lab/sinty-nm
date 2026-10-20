@@ -337,6 +337,11 @@ func (b *Backend) Subscribe(ctx context.Context, fn func(core.WifiEvent)) error 
 			_ = b.conn.RemoveMatchSignal(matches...)
 			_ = b.conn.RemoveMatchSignal(added...)
 		}()
+		for path, ifaces := range b.objects() {
+			if props, ok := ifaces[ifaceStation]; ok {
+				b.emit(fn, string(path), variantString(props["State"]))
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():

@@ -24,6 +24,7 @@ type ActiveConnection struct {
 	isDflt   bool
 	ip4      dbus.ObjectPath
 	ip6      dbus.ObjectPath
+	adopted  bool
 }
 
 // newActiveConnection builds an unexported ActiveConnection in the activating state.

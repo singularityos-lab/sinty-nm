@@ -76,11 +76,13 @@ func (m *Manager) onWifiEvent(ev core.WifiEvent) {
 			d.setActiveAP(d.apPathForSSID(ev.ConnectedSSID))
 		}
 		go d.populateAPs()
+		m.adoptWifi(d, ev.ConnectedSSID)
 	case core.WifiConnecting:
 		d.setState(devStateConfig, devReasonNone)
 	case core.WifiDisconnecting:
 		d.setState(devStateDeactivating, devReasonNone)
 	case core.WifiDisconnected:
+		m.dropAdoptedWifi(d)
 		d.setState(devStateDisconnected, devReasonNone)
 		d.setActiveAP(nullPath)
 	}
