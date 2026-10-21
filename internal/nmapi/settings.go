@@ -307,6 +307,9 @@ func (sc *SettingsConnection) export() error {
 				Methods: []introspect.Method{
 					{Name: "GetSettings", Args: []introspect.Arg{{Name: "settings", Type: "a{sa{sv}}", Direction: "out"}}},
 					{Name: "Update", Args: []introspect.Arg{{Name: "properties", Type: "a{sa{sv}}", Direction: "in"}}},
+					{Name: "UpdateUnsaved", Args: []introspect.Arg{{Name: "properties", Type: "a{sa{sv}}", Direction: "in"}}},
+					{Name: "Update2", Args: []introspect.Arg{{Name: "settings", Type: "a{sa{sv}}", Direction: "in"}, {Name: "flags", Type: "u", Direction: "in"}, {Name: "args", Type: "a{sv}", Direction: "in"}, {Name: "result", Type: "a{sv}", Direction: "out"}}},
+					{Name: "Save"},
 					{Name: "Delete"},
 					{Name: "GetSecrets", Args: []introspect.Arg{{Name: "setting_name", Type: "s", Direction: "in"}, {Name: "secrets", Type: "a{sa{sv}}", Direction: "out"}}},
 				},
@@ -350,6 +353,7 @@ func (sc *SettingsConnection) GetSecrets(settingName string) (map[string]map[str
 // Update replaces the profile settings and rewrites the keyfile.
 func (sc *SettingsConnection) Update(settings map[string]map[string]dbus.Variant) *dbus.Error {
 	sc.mu.Lock()
+	keepSecrets(settings, sc.settings)
 	sc.settings = settings
 	sc.id = variantString(settings["connection"], "id")
 	sc.uuid = variantString(settings["connection"], "uuid")
@@ -360,6 +364,41 @@ func (sc *SettingsConnection) Update(settings map[string]map[string]dbus.Variant
 	}
 	_ = sc.s.m.conn.Emit(sc.path, ifaceConnection+".Updated")
 	return nil
+}
+
+// UpdateUnsaved behaves like Update; profiles always live in keyfiles.
+func (sc *SettingsConnection) UpdateUnsaved(settings map[string]map[string]dbus.Variant) *dbus.Error {
+	return sc.Update(settings)
+}
+
+// Update2 is the call libnm uses to commit changes. Empty settings leave the profile as is.
+func (sc *SettingsConnection) Update2(settings map[string]map[string]dbus.Variant, flags uint32, args map[string]dbus.Variant) (map[string]dbus.Variant, *dbus.Error) {
+	if len(settings) > 0 {
+		if err := sc.Update(settings); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]dbus.Variant{}, nil
+}
+
+// Save is a no-op: every update is already written to disk.
+func (sc *SettingsConnection) Save() *dbus.Error {
+	return nil
+}
+
+// keepSecrets carries secret fields over when an update omits them, as NetworkManager does.
+func keepSecrets(next, prev map[string]map[string]dbus.Variant) {
+	for _, sk := range [][2]string{{"802-11-wireless-security", "psk"}, {"wireguard", "private-key"}} {
+		old, ok := prev[sk[0]][sk[1]]
+		if !ok {
+			continue
+		}
+		if g := next[sk[0]]; g != nil {
+			if _, has := g[sk[1]]; !has {
+				g[sk[1]] = old
+			}
+		}
+	}
 }
 
 // Delete removes the profile and its keyfile.
@@ -411,7 +450,6 @@ func (sc *SettingsConnection) ipv4Method() string {
 	}
 	return "auto"
 }
-
 
 // kindMatchesType reports whether a device kind can carry a profile of connType.
 func kindMatchesType(k core.DeviceKind, connType string) bool {

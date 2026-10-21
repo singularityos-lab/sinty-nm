@@ -92,3 +92,18 @@ func TestInterfaceNameFromID(t *testing.T) {
 		t.Fatalf("name %q", n)
 	}
 }
+
+func TestKeepSecretsOnUpdate(t *testing.T) {
+	prev := map[string]map[string]dbus.Variant{
+		"connection": {"id": dbus.MakeVariant("wg0")},
+		"wireguard":  {"private-key": dbus.MakeVariant("secret")},
+	}
+	next := map[string]map[string]dbus.Variant{
+		"connection": {"id": dbus.MakeVariant("wg0"), "autoconnect": dbus.MakeVariant(false)},
+		"wireguard":  {"listen-port": dbus.MakeVariant(uint32(0))},
+	}
+	keepSecrets(next, prev)
+	if got := variantString(next["wireguard"], "private-key"); got != "secret" {
+		t.Fatalf("private-key not kept: %q", got)
+	}
+}
