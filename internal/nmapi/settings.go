@@ -408,6 +408,18 @@ func keepSecrets(next, prev map[string]map[string]dbus.Variant) {
 
 // Delete removes the profile and its keyfile.
 func (sc *SettingsConnection) Delete() *dbus.Error {
+	m := sc.s.m
+	m.mu.Lock()
+	var users []*ActiveConnection
+	for _, ac := range m.activeConns {
+		if ac.conn == sc.path {
+			users = append(users, ac)
+		}
+	}
+	m.mu.Unlock()
+	for _, ac := range users {
+		m.deactivate(ac)
+	}
 	_ = sc.s.m.conn.Emit(sc.path, ifaceConnection+".Removed")
 	sc.s.remove(sc)
 	return nil

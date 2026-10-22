@@ -1,6 +1,8 @@
 package nmapi
 
 import (
+	"context"
+
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/godbus/dbus/v5/prop"
@@ -26,6 +28,8 @@ type ActiveConnection struct {
 	ip6       dbus.ObjectPath
 	adopted   bool
 	vpnRoutes []vpnRoute
+	cancel    context.CancelFunc
+	gone      bool
 }
 
 // newActiveConnection builds an unexported ActiveConnection in the activating state.

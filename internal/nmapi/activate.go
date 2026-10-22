@@ -102,7 +102,12 @@ func (m *Manager) onRFKillEvent(soft, hard bool) {
 // device to prepare, and runs the actual bring-up asynchronously (NM returns the active
 // connection path immediately, before association/DHCP complete).
 func (m *Manager) activate(sc *SettingsConnection, dev *Device, specific dbus.ObjectPath) (*ActiveConnection, error) {
+	if old := m.activeOn(dev); old != nil {
+		m.deactivate(old)
+	}
 	ac := m.newActiveConnection(sc, dev, specific)
+	ctx, cancel := context.WithCancel(m.runCtx())
+	ac.cancel = cancel
 	m.mu.Lock()
 	m.activeConns[ac.path] = ac
 	m.mu.Unlock()
@@ -115,17 +120,40 @@ func (m *Manager) activate(sc *SettingsConnection, dev *Device, specific dbus.Ob
 	dev.setActiveConnection(ac.path)
 	dev.setState(devStatePrepare, devReasonUserRequested)
 	m.refreshRootLists()
-	go m.runActivation(ac, sc, dev)
+	go m.runActivation(ctx, ac, sc, dev)
 	return ac, nil
 }
 
+// activeOn returns the active connection currently bound to dev, if any.
+func (m *Manager) activeOn(dev *Device) *ActiveConnection {
+	dev.mu.Lock()
+	p := dev.activeConn
+	dev.mu.Unlock()
+	if p == nullPath {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeConns[p]
+}
+
+// superseded reports whether ac was deactivated or replaced while it was being brought up.
+func (m *Manager) superseded(ctx context.Context, ac *ActiveConnection) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return ctx.Err() != nil || ac.gone
+}
+
 // runActivation performs the bring-up and settles the final device/active-connection state.
-func (m *Manager) runActivation(ac *ActiveConnection, sc *SettingsConnection, dev *Device) {
-	ctx := m.runCtx()
-	if err := m.bringUp(ctx, ac, sc, dev); err != nil {
+func (m *Manager) runActivation(ctx context.Context, ac *ActiveConnection, sc *SettingsConnection, dev *Device) {
+	err := m.bringUp(ctx, ac, sc, dev)
+	if m.superseded(ctx, ac) {
+		return
+	}
+	if err != nil {
 		log.Printf("activation of %s on %s failed: %v", sc.id, dev.iface, err)
 		dev.setState(devStateFailed, devReasonNone)
-		ac.setState(acStateDeactivated, devReasonNone)
+		m.deactivate(ac)
 		return
 	}
 	ac.setState(acStateActivated, devReasonNone)
@@ -203,6 +231,16 @@ func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, dev *
 // deactivate tears down an active connection: disconnect/remove the mechanism, flush L3,
 // revert DNS, drop the objects, and settle the device back to disconnected.
 func (m *Manager) deactivate(ac *ActiveConnection) {
+	m.mu.Lock()
+	if ac.gone {
+		m.mu.Unlock()
+		return
+	}
+	ac.gone = true
+	m.mu.Unlock()
+	if ac.cancel != nil {
+		ac.cancel()
+	}
 	dev := ac.device
 	ac.setState(acStateDeactivating, devReasonUserRequested)
 	if dev != nil {
