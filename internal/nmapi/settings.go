@@ -61,9 +61,14 @@ func newSettings(m *Manager) (*Settings, error) {
 			continue
 		}
 		full := filepath.Join(systemConnDir, e.Name())
-		settings, err := readKeyfile(full)
+		settings, legacy, err := readKeyfileLegacy(full)
 		if err != nil {
 			continue
+		}
+		if legacy {
+			if err := writeKeyfile(full, settings); err != nil {
+				log.Printf("rewrite %s: %v", full, err)
+			}
 		}
 		s.conns = append(s.conns, s.newConnection(settings, full))
 	}
@@ -619,10 +624,18 @@ func keyfileVariant(val string) dbus.Variant {
 // readKeyfile parses an NM-style keyfile into a settings map. Group names are mapped back
 // to their D-Bus form and the wifi ssid is restored to bytes.
 func readKeyfile(path string) (map[string]map[string]dbus.Variant, error) {
+	out, _, err := readKeyfileLegacy(path)
+	return out, err
+}
+
+// readKeyfileLegacy is readKeyfile that also reports whether any value used the old
+// untyped list form, so the caller can rewrite the file.
+func readKeyfileLegacy(path string) (map[string]map[string]dbus.Variant, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	legacy := false
 	out := map[string]map[string]dbus.Variant{}
 	var group string
 	for _, raw := range strings.Split(string(data), "\n") {
@@ -645,7 +658,14 @@ func readKeyfile(path string) (map[string]map[string]dbus.Variant, error) {
 			out[group][key] = dbus.MakeVariant([]byte(val))
 			continue
 		}
+		if !strings.HasPrefix(val, "@") {
+			if v, ok := legacyVariant(key, val); ok {
+				out[group][key] = v
+				legacy = true
+				continue
+			}
+		}
 		out[group][key] = keyfileVariant(val)
 	}
-	return out, nil
+	return out, legacy, nil
 }

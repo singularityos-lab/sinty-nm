@@ -3,6 +3,7 @@ package nmapi
 import (
 	"encoding/binary"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,9 +17,9 @@ func dnsU32(s string) uint32 {
 func libnmWireGuard() map[string]map[string]dbus.Variant {
 	return map[string]map[string]dbus.Variant{
 		"connection": {
-			"id":             dbus.MakeVariant("oneclick2"),
+			"id":             dbus.MakeVariant("office"),
 			"type":           dbus.MakeVariant("wireguard"),
-			"interface-name": dbus.MakeVariant("oneclick2"),
+			"interface-name": dbus.MakeVariant("office"),
 		},
 		"wireguard": {
 			"private-key": dbus.MakeVariant("yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="),
@@ -55,15 +56,15 @@ func checkProfile(t *testing.T, sc *SettingsConnection) {
 	if len(ip.dns) != 2 || !ip.dns[0].Equal(net.ParseIP("1.1.1.1")) || !ip.dns[1].Equal(net.ParseIP("9.9.9.9")) {
 		t.Fatalf("dns: %v", ip.dns)
 	}
-	if sc.interfaceName() != "oneclick2" {
+	if sc.interfaceName() != "office" {
 		t.Fatalf("iface: %s", sc.interfaceName())
 	}
 }
 
 func TestWireGuardProfileSurvivesKeyfile(t *testing.T) {
 	settings := libnmWireGuard()
-	checkProfile(t, &SettingsConnection{settings: settings, id: "oneclick2"})
-	path := filepath.Join(t.TempDir(), "oneclick2.nmconnection")
+	checkProfile(t, &SettingsConnection{settings: settings, id: "office"})
+	path := filepath.Join(t.TempDir(), "office.nmconnection")
 	if err := writeKeyfile(path, settings); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestWireGuardProfileSurvivesKeyfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkProfile(t, &SettingsConnection{settings: back, id: "oneclick2"})
+	checkProfile(t, &SettingsConnection{settings: back, id: "office"})
 }
 
 func TestHalvesSplitDefaultRoute(t *testing.T) {
@@ -105,5 +106,41 @@ func TestKeepSecretsOnUpdate(t *testing.T) {
 	keepSecrets(next, prev)
 	if got := variantString(next["wireguard"], "private-key"); got != "secret" {
 		t.Fatalf("private-key not kept: %q", got)
+	}
+}
+
+func TestLegacyKeyfileLists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "office.nmconnection")
+	body := "[connection]\nid=office\ntype=wireguard\ninterface-name=office\n\n" +
+		"[ipv4]\naddress-data=[map[address:\"10.8.0.8\" prefix:@u 32]]\ndns-data=[10.8.0.1]\ndns-search=[~]\nmethod=manual\nroute-data=[]\n\n" +
+		"[wireguard]\npeers=[map[allowed-ips:[\"0.0.0.0/0\"] endpoint:\"203.0.113.7:51820\" public-key:\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"]]\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	back, legacy, err := readKeyfileLegacy(path)
+	if err != nil || !legacy {
+		t.Fatalf("legacy %v err %v", legacy, err)
+	}
+	sc := &SettingsConnection{settings: back, id: "office"}
+	ip := sc.ipConfig("ipv4")
+	if len(ip.addrs) != 1 || ip.addrs[0].String() != "10.8.0.8/32" {
+		t.Fatalf("addrs: %v", ip.addrs)
+	}
+	if len(ip.dns) != 1 || !ip.dns[0].Equal(net.ParseIP("10.8.0.1")) {
+		t.Fatalf("dns: %v", ip.dns)
+	}
+	cfg := sc.wgConfig()
+	if len(cfg.Peers) != 1 || cfg.Peers[0].Endpoint != "203.0.113.7:51820" || len(cfg.Peers[0].AllowedIPs) != 1 || cfg.Peers[0].AllowedIPs[0].String() != "0.0.0.0/0" {
+		t.Fatalf("peers: %+v", cfg.Peers)
+	}
+	if err := writeKeyfile(path, back); err != nil {
+		t.Fatal(err)
+	}
+	again, legacy, err := readKeyfileLegacy(path)
+	if err != nil || legacy {
+		t.Fatalf("rewritten legacy %v err %v", legacy, err)
+	}
+	if got := (&SettingsConnection{settings: again}).ipConfig("ipv4"); len(got.addrs) != 1 {
+		t.Fatalf("rewritten addrs: %v", got.addrs)
 	}
 }
