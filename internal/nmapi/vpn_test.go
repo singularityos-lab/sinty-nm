@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/singularityos-lab/sinty-nm/internal/core"
 )
 
 func dnsU32(s string) uint32 {
@@ -142,5 +144,20 @@ func TestLegacyKeyfileLists(t *testing.T) {
 	}
 	if got := (&SettingsConnection{settings: again}).ipConfig("ipv4"); len(got.addrs) != 1 {
 		t.Fatalf("rewritten addrs: %v", got.addrs)
+	}
+}
+
+func TestWireGuardProfileUsesItsOwnInterface(t *testing.T) {
+	other := &Device{iface: "home", kind: core.KindWireGuard, managed: true}
+	m := &Manager{devByIface: map[string]*Device{"home": other}, devices: []*Device{other}}
+	sc := &SettingsConnection{settings: libnmWireGuard(), id: "office"}
+	if d := m.resolveDevice(nullPath, sc); d != nil {
+		t.Fatalf("office resolved to %s", d.iface)
+	}
+	own := &Device{iface: "office", kind: core.KindWireGuard, managed: true}
+	m.devByIface["office"] = own
+	m.devices = append(m.devices, own)
+	if d := m.resolveDevice(nullPath, sc); d != own {
+		t.Fatalf("office resolved to %v", d)
 	}
 }

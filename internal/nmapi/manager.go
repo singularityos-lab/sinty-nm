@@ -537,13 +537,18 @@ func (m *Manager) resolveDevice(path dbus.ObjectPath, sc *SettingsConnection) *D
 		return m.devByPath[path]
 	}
 	want := sc.connType()
+	if want == "wireguard" {
+		if d := m.devByIface[sc.interfaceName()]; d != nil && d.kind == core.KindWireGuard {
+			return d
+		}
+		return nil
+	}
 	for _, d := range m.devices {
 		if !d.managed {
 			continue
 		}
 		if (want == "802-11-wireless" && d.kind == core.KindWifi) ||
-			(want == "802-3-ethernet" && d.kind == core.KindEthernet) ||
-			(want == "wireguard" && d.kind == core.KindWireGuard) {
+			(want == "802-3-ethernet" && d.kind == core.KindEthernet) {
 			return d
 		}
 	}
