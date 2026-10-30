@@ -215,6 +215,7 @@ func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, sc *S
 		if dev.kind != core.KindEthernet || ctx.Err() != nil || len(mac) != 6 {
 			return err
 		}
+		log.Printf("sinty-nmd: %v, using a link-local address", err)
 		lease = core.LinkLocalLease(mac)
 	}
 	sc.mergeDNS(lease)
