@@ -7,6 +7,7 @@ import (
 	"net"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // Wire constants for the L3/L4 framing we build by hand on the raw socket.
@@ -26,11 +27,15 @@ var broadcastMAC = [8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 type rawSock struct {
 	fd    int
 	index int
+	bpf   *bpfState
 }
 
 // openRawSock opens a broadcast-capable packet socket bound to the given interface index.
 func openRawSock(ifindex int) (*rawSock, error) {
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_DGRAM, int(htons(ethPIP)))
+	if err == syscall.EAFNOSUPPORT {
+		return openBPFSock(ifindex)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +59,9 @@ func (s *rawSock) close() { syscall.Close(s.fd) }
 // send wraps a DHCP payload in UDP+IP and transmits it as an L2 broadcast frame.
 func (s *rawSock) send(dhcp []byte) error {
 	frame := encodeIPUDP(net.IPv4zero, net.IPv4bcast, clientPort, serverPort, dhcp)
+	if s.bpf != nil {
+		return s.bpf.send(s.fd, frame)
+	}
 	dst := &syscall.SockaddrLinklayer{
 		Protocol: htons(ethPIP),
 		Ifindex:  s.index,
@@ -85,14 +93,24 @@ func (s *rawSock) recvReply(ctx context.Context, xid uint32, budget time.Duratio
 		if err := s.setReadTimeout(slice); err != nil {
 			return nil, err
 		}
-		n, _, err := syscall.Recvfrom(s.fd, buf, 0)
+		var pkt []byte
+		var err error
+		if s.bpf != nil {
+			if pkt, err = s.bpf.next(s.fd); pkt == nil && err == nil {
+				continue
+			}
+		} else {
+			var n int
+			n, _, err = syscall.Recvfrom(s.fd, buf, 0)
+			pkt = buf[:max(n, 0)]
+		}
 		if err != nil {
 			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
 				continue
 			}
 			return nil, err
 		}
-		payload := decodeIPUDP(buf[:n])
+		payload := decodeIPUDP(pkt)
 		if payload == nil {
 			continue
 		}
@@ -122,6 +140,9 @@ func (s *rawSock) setReadTimeout(d time.Duration) error {
 	tv := syscall.NsecToTimeval(int64(d))
 	if tv.Sec == 0 && tv.Usec == 0 {
 		tv.Usec = 1 // a zero timeval disables the timeout; floor at 1us
+	}
+	if s.bpf != nil {
+		return bpfIoctl(s.fd, bpfSetReadTimeout, unsafe.Pointer(&tv))
 	}
 	return syscall.SetsockoptTimeval(s.fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv)
 }
