@@ -161,3 +161,42 @@ func TestWireGuardProfileUsesItsOwnInterface(t *testing.T) {
 		t.Fatalf("office resolved to %v", d)
 	}
 }
+
+func TestManualLease(t *testing.T) {
+	sc := &SettingsConnection{settings: map[string]map[string]dbus.Variant{"ipv4": {
+		"method": dbus.MakeVariant("manual"),
+		"address-data": dbus.MakeVariant([]map[string]dbus.Variant{
+			{"address": dbus.MakeVariant("192.168.1.20"), "prefix": dbus.MakeVariant(uint32(24))},
+			{"address": dbus.MakeVariant("192.168.1.21"), "prefix": dbus.MakeVariant(uint32(24))},
+		}),
+		"gateway":  dbus.MakeVariant("192.168.1.1"),
+		"dns-data": dbus.MakeVariant([]string{"9.9.9.9"}),
+	}}}
+	lease, extra, err := sc.manualLease()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.IP.String() != "192.168.1.20" || lease.PrefixLen != 24 || lease.Gateway.String() != "192.168.1.1" {
+		t.Fatalf("lease = %+v", lease)
+	}
+	if len(lease.DNS) != 1 || lease.DNS[0].String() != "9.9.9.9" || len(extra) != 1 {
+		t.Fatalf("dns = %v extra = %v", lease.DNS, extra)
+	}
+}
+
+func TestMergeDNS(t *testing.T) {
+	ns := dbus.MakeVariant([]string{"9.9.9.9"})
+	base := []net.IP{net.ParseIP("10.0.0.1")}
+	sc := &SettingsConnection{settings: map[string]map[string]dbus.Variant{"ipv4": {"dns-data": ns}}}
+	lease := &core.Lease{DNS: base}
+	sc.mergeDNS(lease)
+	if len(lease.DNS) != 2 || lease.DNS[0].String() != "9.9.9.9" {
+		t.Fatalf("merged = %v", lease.DNS)
+	}
+	sc.settings["ipv4"]["ignore-auto-dns"] = dbus.MakeVariant(true)
+	lease = &core.Lease{DNS: base}
+	sc.mergeDNS(lease)
+	if len(lease.DNS) != 1 || lease.DNS[0].String() != "9.9.9.9" {
+		t.Fatalf("ignored = %v", lease.DNS)
+	}
+}

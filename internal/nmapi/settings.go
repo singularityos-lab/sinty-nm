@@ -2,8 +2,10 @@ package nmapi
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -466,6 +468,46 @@ func (sc *SettingsConnection) ipv4Method() string {
 		return mth
 	}
 	return "auto"
+}
+
+// manualLease builds the configuration of a manual ipv4 profile. Addresses after the
+// first are returned apart, since a lease carries only one.
+func (sc *SettingsConnection) manualLease() (*core.Lease, []net.IPNet, error) {
+	cfg := sc.ipConfig("ipv4")
+	if len(cfg.addrs) == 0 {
+		return nil, nil, errors.New("manual ipv4 profile has no address")
+	}
+	sc.mu.Lock()
+	gateway := variantString(sc.settings["ipv4"], "gateway")
+	sc.mu.Unlock()
+	prefix, _ := cfg.addrs[0].Mask.Size()
+	lease := &core.Lease{
+		IP:        cfg.addrs[0].IP,
+		PrefixLen: prefix,
+		Gateway:   net.ParseIP(gateway).To4(),
+		DNS:       cfg.dns,
+		Domains:   cfg.domains,
+	}
+	return lease, cfg.addrs[1:], nil
+}
+
+// mergeDNS puts the profile's nameservers ahead of the lease's, or in place of them when
+// the profile ignores automatic DNS.
+func (sc *SettingsConnection) mergeDNS(lease *core.Lease) {
+	cfg := sc.ipConfig("ipv4")
+	sc.mu.Lock()
+	v, ok := sc.settings["ipv4"]["ignore-auto-dns"]
+	sc.mu.Unlock()
+	ignore := false
+	if ok {
+		ignore, _ = v.Value().(bool)
+	}
+	if ignore {
+		lease.DNS = nil
+		lease.Domains = nil
+	}
+	lease.DNS = append(cfg.dns[:len(cfg.dns):len(cfg.dns)], lease.DNS...)
+	lease.Domains = append(cfg.domains[:len(cfg.domains):len(cfg.domains)], lease.Domains...)
 }
 
 // kindMatchesType reports whether a device kind can carry a profile of connType.

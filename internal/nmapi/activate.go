@@ -176,18 +176,12 @@ func (m *Manager) bringUp(ctx context.Context, ac *ActiveConnection, sc *Setting
 			return err
 		}
 		dev.setActiveAP(dev.apPathForSSID(sc.ssid()))
-		if isStatic(sc.ipv4Method()) {
-			return nil
-		}
-		return m.configureDHCP(ctx, ac, dev)
+		return m.configureIPv4(ctx, ac, sc, dev)
 	case core.KindEthernet:
 		if err := m.b.Link.SetUp(dev.index, true); err != nil {
 			return err
 		}
-		if isStatic(sc.ipv4Method()) {
-			return nil
-		}
-		return m.configureDHCP(ctx, ac, dev)
+		return m.configureIPv4(ctx, ac, sc, dev)
 	case core.KindWireGuard:
 		return m.bringUpWireGuard(ac, sc, dev)
 	default:
@@ -195,9 +189,25 @@ func (m *Manager) bringUp(ctx context.Context, ac *ActiveConnection, sc *Setting
 	}
 }
 
-// configureDHCP acquires a lease and applies address, default route, and DNS, then
-// publishes an IP4Config on the device and active connection.
-func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, dev *Device) error {
+// configureIPv4 follows the profile's ipv4 method: nothing for disabled, the stored
+// address for manual, a DHCP lease otherwise.
+func (m *Manager) configureIPv4(ctx context.Context, ac *ActiveConnection, sc *SettingsConnection, dev *Device) error {
+	switch sc.ipv4Method() {
+	case "disabled":
+		return nil
+	case "manual":
+		dev.setState(devStateIPConfig, devReasonNone)
+		lease, extra, err := sc.manualLease()
+		if err != nil {
+			return err
+		}
+		return m.applyLease(ac, dev, lease, extra)
+	}
+	return m.configureDHCP(ctx, ac, sc, dev)
+}
+
+// configureDHCP acquires a lease, merges the profile's DNS choice into it, and applies it.
+func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, sc *SettingsConnection, dev *Device) error {
 	dev.setState(devStateIPConfig, devReasonNone)
 	mac, _ := net.ParseMAC(dev.mac)
 	lease, err := m.b.DHCP.Acquire(ctx, dev.iface, mac)
@@ -207,11 +217,24 @@ func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, dev *
 		}
 		lease = core.LinkLocalLease(mac)
 	}
+	sc.mergeDNS(lease)
+	return m.applyLease(ac, dev, lease, nil)
+}
+
+// applyLease applies address, default route, and DNS, then publishes an IP4Config on the
+// device and active connection. extra lists further addresses of a manual profile.
+func (m *Manager) applyLease(ac *ActiveConnection, dev *Device, lease *core.Lease, extra []net.IPNet) error {
 	if err := m.b.Link.FlushAddrs(dev.index); err != nil {
 		return fmt.Errorf("flush addrs before applying lease: %w", err)
 	}
 	if err := m.b.Link.AddAddr(dev.index, lease.IP, lease.PrefixLen); err != nil {
 		return err
+	}
+	for _, a := range extra {
+		prefix, _ := a.Mask.Size()
+		if err := m.b.Link.AddAddr(dev.index, a.IP, prefix); err != nil {
+			return err
+		}
 	}
 	_ = m.b.Link.SetUp(dev.index, true)
 	if lease.Gateway != nil {
@@ -274,9 +297,4 @@ func (m *Manager) deactivate(ac *ActiveConnection) {
 		dev.setState(devStateDisconnected, devReasonUserRequested)
 	}
 	m.refreshRootLists()
-}
-
-// isStatic reports whether an ipv4 method skips the DHCP client.
-func isStatic(method string) bool {
-	return method == "manual" || method == "disabled"
 }
