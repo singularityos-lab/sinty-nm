@@ -170,6 +170,8 @@ func classify(name string, arphrd uint16, flags uint32, infoKind string) core.De
 		return core.KindBridge
 	case "tun", "tap":
 		return core.KindTun
+	case "wlan":
+		return core.KindWifi
 	case "":
 		if arphrd == syscall.ARPHRD_ETHER {
 			if isWireless(name) {

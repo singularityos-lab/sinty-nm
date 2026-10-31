@@ -15,6 +15,7 @@ import (
 	"github.com/singularityos-lab/sinty-nm/internal/backend/rtnl"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/sys"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/wg"
+	"github.com/singularityos-lab/sinty-nm/internal/backend/wpa"
 	"github.com/singularityos-lab/sinty-nm/internal/core"
 	"github.com/singularityos-lab/sinty-nm/internal/nmapi"
 )
@@ -66,8 +67,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("rtnl backend: %v", err)
 	}
-	wifi, err := iwd.New(conn)
-	if err != nil {
+	var wifi core.WifiBackend
+	if os.Getenv("SINTY_NM_WIFI") == "wpa" {
+		wifi = wpa.New()
+	} else if wifi, err = iwd.New(conn); err != nil {
 		log.Fatalf("iwd backend: %v", err)
 	}
 	wgb, err := wg.New()
