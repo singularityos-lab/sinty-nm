@@ -110,6 +110,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	go followRadio(ctx, conn)
+
 	if err := mgr.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("run: %v", err)
 	}

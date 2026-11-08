@@ -4,17 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"syscall"
-	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
 )
 
 const rfkillPath = "/dev/rfkill"
-
-// rfkillPollInterval is how often Subscribe drains pending events. Radio block changes
-// are rare and not latency-critical, so polling avoids the fd-close races of unblocking
-// a goroutine parked in a blocking read.
-const rfkillPollInterval = 250 * time.Millisecond
 
 // rfkill switch types (uapi linux/rfkill.h).
 const (
@@ -125,24 +121,41 @@ func (r *rfkill) Subscribe(ctx context.Context, fn func(soft, hard bool)) error 
 	lastSoft, lastHard, _ := readWLANState()
 	fn(lastSoft, lastHard)
 
-	ticker := time.NewTicker(rfkillPollInterval)
-	defer ticker.Stop()
+	wake, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(wake)
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		unix.Write(wake, []byte{1, 0, 0, 0, 0, 0, 0, 0})
+		close(done)
+	})
+	defer func() {
+		if !stop() {
+			<-done
+		}
+	}()
+
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}, {Fd: int32(wake), Events: unix.POLLIN}}
 	for {
-		select {
-		case <-ctx.Done():
+		fds[0].Revents, fds[1].Revents = 0, 0
+		if _, err := unix.Poll(fds, -1); err != nil && err != unix.EINTR {
+			return err
+		}
+		if ctx.Err() != nil {
 			return ctx.Err()
-		case <-ticker.C:
-			if !consumeEvents(fd) {
-				continue
-			}
-			soft, hard, err := readWLANState()
-			if err != nil {
-				continue
-			}
-			if soft != lastSoft || hard != lastHard {
-				lastSoft, lastHard = soft, hard
-				fn(soft, hard)
-			}
+		}
+		if fds[0].Revents == 0 || !consumeEvents(fd) {
+			continue
+		}
+		soft, hard, err := readWLANState()
+		if err != nil {
+			continue
+		}
+		if soft != lastSoft || hard != lastHard {
+			lastSoft, lastHard = soft, hard
+			fn(soft, hard)
 		}
 	}
 }

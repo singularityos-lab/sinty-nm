@@ -188,7 +188,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	go m.rescanLoop(ctx, wifiDevs)
 
 	m.pollConnectivity(ctx)
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(connectivityInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -200,17 +200,31 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 }
 
+const (
+	connectivityInterval    = 5 * time.Minute
+	rescanInterval          = 20 * time.Second
+	rescanConnectedInterval = 2 * time.Minute
+)
+
 // rescanLoop periodically re-scans every wifi device so the AP list reflects the current
 // airspace without a client having to call RequestScan.
 func (m *Manager) rescanLoop(ctx context.Context, wifiDevs []*Device) {
-	ticker := time.NewTicker(20 * time.Second)
+	ticker := time.NewTicker(rescanInterval)
 	defer ticker.Stop()
+	last := map[*Device]time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
 			for _, d := range wifiDevs {
+				d.mu.Lock()
+				connected := d.state == devStateActivated
+				d.mu.Unlock()
+				if connected && now.Sub(last[d]) < rescanConnectedInterval {
+					continue
+				}
+				last[d] = now
 				d.scanAndPopulate()
 			}
 		}
