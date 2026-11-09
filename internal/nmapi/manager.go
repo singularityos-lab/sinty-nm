@@ -128,6 +128,9 @@ func (m *Manager) Export() error {
 	if err := m.settings.export(); err != nil {
 		return err
 	}
+	if err := m.exportVPNArea(); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	devs := append([]*Device(nil), m.devices...)
 	m.mu.Unlock()

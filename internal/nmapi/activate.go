@@ -111,6 +111,7 @@ func (m *Manager) activate(sc *SettingsConnection, dev *Device, specific dbus.Ob
 	m.mu.Lock()
 	m.activeConns[ac.path] = ac
 	m.mu.Unlock()
+	defer m.vpnAreaChanged(ac.typ)
 	if err := ac.export(); err != nil {
 		m.mu.Lock()
 		delete(m.activeConns, ac.path)
@@ -262,6 +263,7 @@ func (m *Manager) deactivate(ac *ActiveConnection) {
 	}
 	ac.gone = true
 	m.mu.Unlock()
+	defer m.vpnAreaChanged(ac.typ)
 	if ac.cancel != nil {
 		ac.cancel()
 	}
