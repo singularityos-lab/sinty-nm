@@ -153,6 +153,7 @@ type LinkBackend interface {
 	AddRoute(index int, r RouteInfo) error
 	DelRoute(index int, r RouteInfo) error
 	SetMTU(index, mtu int) error
+	IPv4(index int) (*Lease, error)
 	// Subscribe delivers link add/change/remove events until ctx is cancelled.
 	Subscribe(ctx context.Context, fn func(LinkInfo, bool)) error
 }

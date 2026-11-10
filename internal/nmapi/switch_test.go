@@ -30,6 +30,7 @@ func (fakeLink) FlushAddrs(int) error                                       { re
 func (fakeLink) AddRoute(int, core.RouteInfo) error                         { return nil }
 func (fakeLink) DelRoute(int, core.RouteInfo) error                         { return nil }
 func (fakeLink) SetMTU(int, int) error                                      { return nil }
+func (fakeLink) IPv4(int) (*core.Lease, error)                              { return &core.Lease{}, nil }
 func (fakeLink) Subscribe(context.Context, func(core.LinkInfo, bool)) error { return nil }
 
 type fakeWifi struct {

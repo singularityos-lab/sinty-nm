@@ -244,13 +244,25 @@ func (m *Manager) applyLease(ac *ActiveConnection, dev *Device, lease *core.Leas
 	}
 	_ = m.b.DNS.Set(core.DNSEntry{Iface: dev.iface, Nameservers: lease.DNS, Domains: lease.Domains, Priority: 100})
 
+	m.publishIP4(ac, dev, lease)
+	return nil
+}
+
+func (m *Manager) publishIP4(ac *ActiveConnection, dev *Device, lease *core.Lease) {
 	ip4 := m.newIP4Config(lease)
 	if err := ip4.export(); err == nil {
 		dev.ip4obj = ip4
 		dev.setIP4Config(ip4.path, nullPath)
 		ac.setIP4(ip4.path)
 	}
-	return nil
+}
+
+func (m *Manager) dropIP4(dev *Device) {
+	if dev.ip4obj != nil {
+		dev.ip4obj.unexport()
+		dev.ip4obj = nil
+	}
+	dev.setIP4Config(nullPath, nullPath)
 }
 
 // deactivate tears down an active connection: disconnect/remove the mechanism, flush L3,
@@ -282,11 +294,7 @@ func (m *Manager) deactivate(ac *ActiveConnection) {
 		_ = m.b.DNS.Revert(dev.iface)
 		dev.setActiveConnection(nullPath)
 		dev.setActiveAP(nullPath)
-		if dev.ip4obj != nil {
-			dev.ip4obj.unexport()
-			dev.ip4obj = nil
-		}
-		dev.setIP4Config(nullPath, nullPath)
+		m.dropIP4(dev)
 	}
 	m.mu.Lock()
 	delete(m.activeConns, ac.path)
