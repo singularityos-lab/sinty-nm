@@ -6,9 +6,10 @@ Packaging just installs the daemon and makes sure the real NM is not also trying
 
 ## Files
 
-- Binary: build static, install as `/usr/bin/sinty-nmd`.
+- Binary: build against the system core, install as `/usr/bin/sinty-nmd`. It needs
+  `libsinty-system-core.so.1` at run time.
 
-      CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o sinty-nmd ./cmd/sinty-nmd
+      CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o sinty-nmd ./cmd/sinty-nmd
 
 - D-Bus policy: `org.freedesktop.NetworkManager.conf` to `/usr/share/dbus-1/system.d/`
   (replaces NetworkManager's; without it the bus refuses the name).

@@ -13,11 +13,11 @@ Packaging notes are in `packaging/`.
 
 ## Build
 
-    go build ./cmd/sinty-nmd
+Links, WireGuard and Wi-Fi power saving go through the Sinty system core from
+[libsingularity](https://github.com/singularityos-lab/libsingularity), so the build needs
+cgo and the `sinty-system-1` pkg-config file:
 
-Static binary for the image:
-
-    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o sinty-nmd ./cmd/sinty-nmd
+    CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o sinty-nmd ./cmd/sinty-nmd
 
 ## Use of Generative AI
 

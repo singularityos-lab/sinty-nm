@@ -4,36 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/mdlayher/netlink"
 )
-
-func TestPowerSaveRequest(t *testing.T) {
-	for _, on := range []bool{true, false} {
-		msg, err := powerSaveRequest(28, 1, 4, on)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if msg.Header.Command != nl80211CmdSetPowerSave || msg.Header.Version != 1 {
-			t.Fatalf("header %+v", msg.Header)
-		}
-		ad, err := netlink.NewAttributeDecoder(msg.Data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := map[uint16]uint32{}
-		for ad.Next() {
-			got[ad.Type()] = ad.Uint32()
-		}
-		want := uint32(0)
-		if on {
-			want = 1
-		}
-		if got[nl80211AttrIfindex] != 4 || got[nl80211AttrPSState] != want || len(got) != 2 {
-			t.Fatalf("on=%v attributes %v", on, got)
-		}
-	}
-}
 
 func TestWirelessInterfaces(t *testing.T) {
 	root := t.TempDir()
