@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,7 +46,8 @@ func TestAdoptedWifiPublishesTheKernelIPv4(t *testing.T) {
 
 	conn := privateBus(t)
 	link := &lateLink{}
-	m, err := New(conn, Backends{Link: link, Wifi: &fakeWifi{}, DHCP: &fakeDHCP{wifi: &fakeWifi{}}, DNS: fakeDNS{}, RFKill: fakeRF{}, Conn: offlineConn{}})
+	dns := &recordDNS{}
+	m, err := New(conn, Backends{Link: link, Wifi: &fakeWifi{}, DHCP: &fakeDHCP{wifi: &fakeWifi{}}, DNS: dns, RFKill: fakeRF{}, Conn: offlineConn{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +85,10 @@ func TestAdoptedWifiPublishesTheKernelIPv4(t *testing.T) {
 	if ac == nil || ac.ip4 != dev.ip4 {
 		t.Fatalf("active connection does not carry the config")
 	}
+	e, ok := dns.entry("wlan0")
+	if !ok || len(e.Nameservers) != 2 || len(e.Domains) != 1 || e.Domains[0] != "lan" {
+		t.Fatalf("adopted DNS not registered: %+v %v", e, ok)
+	}
 
 	m.onWifiEvent(core.WifiEvent{Device: "wlan0", State: core.WifiDisconnected})
 	dev.mu.Lock()
@@ -91,6 +97,38 @@ func TestAdoptedWifiPublishesTheKernelIPv4(t *testing.T) {
 	if !gone {
 		t.Fatal("ip4 config left behind after disconnect")
 	}
+	if _, ok := dns.entry("wlan0"); ok {
+		t.Fatal("adopted DNS left behind after disconnect")
+	}
+}
+
+type recordDNS struct {
+	mu      sync.Mutex
+	entries map[string]core.DNSEntry
+}
+
+func (r *recordDNS) Set(e core.DNSEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.entries == nil {
+		r.entries = make(map[string]core.DNSEntry)
+	}
+	r.entries[e.Iface] = e
+	return nil
+}
+
+func (r *recordDNS) Revert(iface string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.entries, iface)
+	return nil
+}
+
+func (r *recordDNS) entry(iface string) (core.DNSEntry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[iface]
+	return e, ok
 }
 
 func TestNameservers(t *testing.T) {

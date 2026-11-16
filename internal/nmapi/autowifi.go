@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/singularityos-lab/sinty-nm/internal/core"
 )
 
 var resolvConf = "/etc/resolv.conf"
@@ -80,10 +82,12 @@ func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) {
 	for i := 0; i < observeTries; i++ {
 		if l, err := m.b.Link.IPv4(d.index); err == nil && l.IP != nil {
 			l.DNS = nameservers(resolvConf)
+			l.Domains = searchDomains(resolvConf)
 			m.mu.Lock()
 			live := m.activeConns[ac.path] == ac
 			m.mu.Unlock()
 			if live {
+				_ = m.b.DNS.Set(core.DNSEntry{Iface: d.iface, Nameservers: l.DNS, Domains: l.Domains, Priority: 100})
 				m.publishIP4(ac, d, l)
 			}
 			return
@@ -115,6 +119,23 @@ func nameservers(path string) []net.IP {
 	return out
 }
 
+func searchDomains(path string) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var out []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		w := strings.Fields(sc.Text())
+		if len(w) >= 2 && (w[0] == "search" || w[0] == "domain") {
+			out = append(out, w[1:]...)
+		}
+	}
+	return out
+}
+
 func (m *Manager) dropAdoptedWifi(d *Device) {
 	d.mu.Lock()
 	p := d.activeConn
@@ -135,6 +156,7 @@ func (m *Manager) dropAdoptedWifi(d *Device) {
 	m.mu.Unlock()
 	ac.setState(acStateDeactivated, devReasonNone)
 	ac.unexport()
+	_ = m.b.DNS.Revert(d.iface)
 	m.dropIP4(d)
 	d.setActiveConnection(nullPath)
 	m.refreshRootLists()
