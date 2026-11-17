@@ -15,9 +15,6 @@ import (
 // resolvPath is the resolver file this backend owns.
 const resolvPath = "/etc/resolv.conf"
 
-// marker is written as the first line so an operator can tell who owns the file.
-const marker = "# managed by sinty-nm"
-
 // maxNameservers caps the emitted nameserver lines: libc resolvers (glibc MAXNS) stop
 // reading after three, so extra entries would be silently ignored.
 const maxNameservers = 3
@@ -116,7 +113,7 @@ func (m *dnsManager) render() []byte {
 	}
 
 	var b strings.Builder
-	b.WriteString(marker)
+	b.WriteString(core.ResolvConfMarker)
 	b.WriteByte('\n')
 	for _, s := range servers {
 		b.WriteString("nameserver ")

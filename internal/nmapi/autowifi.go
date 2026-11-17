@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 )
 
 var resolvConf = "/etc/resolv.conf"
+
+var resolvconfDir = "/run/resolvconf/interfaces"
 
 const observeTries = 20
 
@@ -81,8 +84,7 @@ func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) {
 	ctx := m.runCtx()
 	for i := 0; i < observeTries; i++ {
 		if l, err := m.b.Link.IPv4(d.index); err == nil && l.IP != nil {
-			l.DNS = nameservers(resolvConf)
-			l.Domains = searchDomains(resolvConf)
+			l.DNS, l.Domains = adoptedResolver(d.iface)
 			m.mu.Lock()
 			live := m.activeConns[ac.path] == ac
 			m.mu.Unlock()
@@ -100,40 +102,58 @@ func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) {
 	}
 }
 
-func nameservers(path string) []net.IP {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var out []net.IP
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		w := strings.Fields(sc.Text())
-		if len(w) >= 2 && w[0] == "nameserver" {
-			if ip := net.ParseIP(w[1]).To4(); ip != nil {
-				out = append(out, ip)
-			}
+func adoptedResolver(iface string) ([]net.IP, []string) {
+	var dns []net.IP
+	var domains []string
+	entries, _ := os.ReadDir(resolvconfDir)
+	for _, e := range entries {
+		name := e.Name()
+		if name != iface && !strings.HasPrefix(name, iface+".") {
+			continue
 		}
+		ns, ds, _ := parseResolver(filepath.Join(resolvconfDir, name))
+		dns = append(dns, ns...)
+		domains = append(domains, ds...)
 	}
-	return out
+	if len(dns) > 0 {
+		return dns, domains
+	}
+	ns, ds, owned := parseResolver(resolvConf)
+	if owned {
+		return nil, domains
+	}
+	return ns, ds
 }
 
-func searchDomains(path string) []string {
+func parseResolver(path string) ([]net.IP, []string, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, nil, false
 	}
 	defer f.Close()
-	var out []string
+	var dns []net.IP
+	var domains []string
+	owned := false
 	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		w := strings.Fields(sc.Text())
-		if len(w) >= 2 && (w[0] == "search" || w[0] == "domain") {
-			out = append(out, w[1:]...)
+	for first := true; sc.Scan(); first = false {
+		line := sc.Text()
+		if first && strings.TrimSpace(line) == core.ResolvConfMarker {
+			owned = true
+		}
+		w := strings.Fields(line)
+		if len(w) < 2 {
+			continue
+		}
+		switch w[0] {
+		case "nameserver":
+			if ip := net.ParseIP(w[1]).To4(); ip != nil {
+				dns = append(dns, ip)
+			}
+		case "search", "domain":
+			domains = append(domains, w[1:]...)
 		}
 	}
-	return out
+	return dns, domains, owned
 }
 
 func (m *Manager) dropAdoptedWifi(d *Device) {

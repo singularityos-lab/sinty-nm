@@ -40,9 +40,9 @@ func TestAdoptedWifiPublishesTheKernelIPv4(t *testing.T) {
 	if err := os.WriteFile(resolv, []byte("# iwd\nnameserver 192.168.1.1\nnameserver fd00::53\nsearch lan\nnameserver 9.9.9.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	oldResolv, oldDelay := resolvConf, observeDelay
-	resolvConf, observeDelay = resolv, 5*time.Millisecond
-	defer func() { resolvConf, observeDelay = oldResolv, oldDelay }()
+	oldResolv, oldDir, oldDelay := resolvConf, resolvconfDir, observeDelay
+	resolvConf, resolvconfDir, observeDelay = resolv, filepath.Join(dir, "none"), 5*time.Millisecond
+	defer func() { resolvConf, resolvconfDir, observeDelay = oldResolv, oldDir, oldDelay }()
 
 	conn := privateBus(t)
 	link := &lateLink{}
@@ -131,14 +131,14 @@ func (r *recordDNS) entry(iface string) (core.DNSEntry, bool) {
 	return e, ok
 }
 
-func TestNameservers(t *testing.T) {
+func TestParseResolver(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "r")
 	_ = os.WriteFile(p, []byte("nameserver 1.1.1.1\nnameserver\nnameserver ::1\noptions edns0\n"), 0o644)
-	got := nameservers(p)
-	if len(got) != 1 || got[0].String() != "1.1.1.1" {
-		t.Fatalf("%v", got)
+	got, _, owned := parseResolver(p)
+	if len(got) != 1 || got[0].String() != "1.1.1.1" || owned {
+		t.Fatalf("%v %v", got, owned)
 	}
-	if nameservers(filepath.Join(t.TempDir(), "missing")) != nil {
+	if got, _, _ := parseResolver(filepath.Join(t.TempDir(), "missing")); got != nil {
 		t.Fatal("missing file")
 	}
 }

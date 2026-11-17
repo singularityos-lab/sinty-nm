@@ -122,6 +122,9 @@ type WGConfig struct {
 	Peers      []WGPeer
 }
 
+// ResolvConfMarker is written as the first line so an operator can tell who owns the file.
+const ResolvConfMarker = "# managed by sinty-nm"
+
 // DNSEntry is the DNS configuration contributed by one interface.
 type DNSEntry struct {
 	Iface       string

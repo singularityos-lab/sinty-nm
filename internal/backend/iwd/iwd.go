@@ -519,7 +519,7 @@ func securityOf(t string) core.WifiSecurity {
 
 func stateOf(s string) core.WifiState {
 	switch s {
-	case "connected":
+	case "connected", "roaming":
 		return core.WifiConnected
 	case "connecting":
 		return core.WifiConnecting
