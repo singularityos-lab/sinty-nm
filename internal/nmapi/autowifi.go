@@ -3,6 +3,7 @@ package nmapi
 import (
 	"bufio"
 	"bytes"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -43,7 +44,8 @@ func (m *Manager) adoptWifi(d *Device, ssid []byte) {
 		return
 	}
 	var ac *ActiveConnection
-	if sc := m.settings.wifiProfile(ssid); sc != nil {
+	sc := m.settings.wifiProfile(ssid)
+	if sc != nil {
 		ac = m.newActiveConnection(sc, d, d.apPathForSSID(ssid))
 	} else {
 		ac = &ActiveConnection{
@@ -76,11 +78,15 @@ func (m *Manager) adoptWifi(d *Device, ssid []byte) {
 	}
 	m.mu.Unlock()
 	m.refreshRootLists()
-	go m.observeIPv4(ac, d)
+	go func() {
+		if !m.observeIPv4(ac, d) {
+			m.leaseAdoptedWifi(ac, sc, d)
+		}
+	}()
 	go m.pollConnectivity(m.runCtx())
 }
 
-func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) {
+func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) bool {
 	ctx := m.runCtx()
 	for i := 0; i < observeTries; i++ {
 		if l, err := m.b.Link.IPv4(d.index); err == nil && l.IP != nil {
@@ -92,13 +98,41 @@ func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) {
 				_ = m.b.DNS.Set(core.DNSEntry{Iface: d.iface, Nameservers: l.DNS, Domains: l.Domains, Priority: 100})
 				m.publishIP4(ac, d, l)
 			}
-			return
+			return true
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return true
 		case <-time.After(observeDelay):
 		}
+	}
+	return false
+}
+
+func (m *Manager) leaseAdoptedWifi(ac *ActiveConnection, sc *SettingsConnection, d *Device) {
+	m.mu.Lock()
+	live := m.activeConns[ac.path] == ac
+	m.mu.Unlock()
+	if !live {
+		return
+	}
+	mac, _ := net.ParseMAC(d.mac)
+	lease, err := m.b.DHCP.Acquire(m.runCtx(), d.iface, mac)
+	if err != nil {
+		log.Printf("sinty-nmd: no address on %s after it reconnected: %v", d.iface, err)
+		return
+	}
+	m.mu.Lock()
+	live = m.activeConns[ac.path] == ac
+	m.mu.Unlock()
+	if !live {
+		return
+	}
+	if sc != nil {
+		sc.mergeDNS(lease)
+	}
+	if err := m.applyLease(ac, d, lease, nil); err != nil {
+		log.Printf("sinty-nmd: apply lease on %s: %v", d.iface, err)
 	}
 }
 

@@ -142,3 +142,48 @@ func TestParseResolver(t *testing.T) {
 		t.Fatal("missing file")
 	}
 }
+
+func TestAdoptedWifiLeasesWhenNoAddressAppears(t *testing.T) {
+	dir := t.TempDir()
+	oldResolv, oldDir, oldDelay := resolvConf, resolvconfDir, observeDelay
+	resolvConf, resolvconfDir, observeDelay = filepath.Join(dir, "resolv.conf"), filepath.Join(dir, "none"), time.Millisecond
+	defer func() { resolvConf, resolvconfDir, observeDelay = oldResolv, oldDir, oldDelay }()
+
+	conn := privateBus(t)
+	dns := &recordDNS{}
+	dh := &fakeDHCP{wifi: &fakeWifi{}, dead: "Dead", failing: "Broken"}
+	m, err := New(conn, Backends{Link: fakeLink{}, Wifi: &fakeWifi{}, DHCP: dh, DNS: dns, RFKill: fakeRF{}, Conn: offlineConn{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Export(); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.AddMatchSignal(dbus.WithMatchInterface("org.freedesktop.DBus.Properties"), dbus.WithMatchMember("PropertiesChanged"), dbus.WithMatchArg(0, ifaceActive)); err != nil {
+		t.Fatal(err)
+	}
+	signals := make(chan *dbus.Signal, 16)
+	conn.Signal(signals)
+	dev := m.devByIface["wlan0"]
+	m.onWifiEvent(core.WifiEvent{Device: "wlan0", State: core.WifiConnected, ConnectedSSID: []byte("Casa")})
+	deadline := time.After(5 * time.Second)
+	for published := false; !published; {
+		select {
+		case sig := <-signals:
+			if changed, ok := sig.Body[1].(map[string]dbus.Variant); ok {
+				if v, ok := changed["Ip4Config"]; ok && v.Value() != nullPath {
+					published = true
+				}
+			}
+		case <-deadline:
+			t.Fatal("leased ip4 config never published on the active connection")
+		}
+	}
+	data := dev.ip4obj.spec[ifaceIP4]["AddressData"].Value.([]map[string]dbus.Variant)
+	if len(data) != 1 || data[0]["address"].Value() != "192.168.1.50" {
+		t.Fatalf("AddressData %v", data)
+	}
+	if _, ok := dns.entry("wlan0"); !ok {
+		t.Fatal("leased DNS not registered")
+	}
+}
