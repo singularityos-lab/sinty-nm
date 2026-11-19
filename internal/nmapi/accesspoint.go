@@ -93,12 +93,12 @@ func (ap *AccessPoint) update(n core.ScannedAP) {
 		return
 	}
 	flags, wpa, rsn := apSecFlags(n.Security)
-	ap.props.SetMust(ifaceAP, "Strength", n.Strength)
-	ap.props.SetMust(ifaceAP, "Frequency", n.Frequency)
-	ap.props.SetMust(ifaceAP, "Flags", flags)
-	ap.props.SetMust(ifaceAP, "WpaFlags", wpa)
-	ap.props.SetMust(ifaceAP, "RsnFlags", rsn)
-	ap.props.SetMust(ifaceAP, "LastSeen", int32(nowBoot()))
+	ap.m.setProp(ap.props, ifaceAP, "Strength", n.Strength)
+	ap.m.setProp(ap.props, ifaceAP, "Frequency", n.Frequency)
+	ap.m.setProp(ap.props, ifaceAP, "Flags", flags)
+	ap.m.setProp(ap.props, ifaceAP, "WpaFlags", wpa)
+	ap.m.setProp(ap.props, ifaceAP, "RsnFlags", rsn)
+	ap.m.setProp(ap.props, ifaceAP, "LastSeen", int32(nowBoot()))
 }
 
 // nowBoot returns a seconds stamp for LastSeen. NM reports seconds since boot; a

@@ -102,7 +102,7 @@ func (ac *ActiveConnection) unexport() {
 func (ac *ActiveConnection) setState(state, reason uint32) {
 	ac.state = state
 	if ac.props != nil {
-		ac.props.SetMust(ifaceActive, "State", state)
+		ac.m.setProp(ac.props, ifaceActive, "State", state)
 	}
 	_ = ac.m.conn.Emit(ac.path, ifaceActive+".StateChanged", state, reason)
 }
@@ -111,7 +111,7 @@ func (ac *ActiveConnection) setState(state, reason uint32) {
 func (ac *ActiveConnection) setIP4(p dbus.ObjectPath) {
 	ac.ip4 = p
 	if ac.props != nil {
-		ac.props.SetMust(ifaceActive, "Ip4Config", p)
+		ac.m.setProp(ac.props, ifaceActive, "Ip4Config", p)
 	}
 }
 

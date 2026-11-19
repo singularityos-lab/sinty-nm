@@ -80,7 +80,7 @@ func (d *Device) populateAPs() {
 		ap.unexport()
 	}
 	if d.props != nil {
-		d.props.SetMust(ifaceWireless, "AccessPoints", paths)
+		d.m.setProp(d.props, ifaceWireless, "AccessPoints", paths)
 	}
 }
 

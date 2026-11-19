@@ -8,5 +8,5 @@ func (d *Device) setCarrier(up bool) {
 	if d.kind != core.KindEthernet || d.props == nil {
 		return
 	}
-	d.props.SetMust(ifaceWired, "Carrier", up)
+	d.m.setProp(d.props, ifaceWired, "Carrier", up)
 }

@@ -107,7 +107,7 @@ func main() {
 	}
 	log.Printf("owning %s; serving NetworkManager API", nmapi.BusName)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(conn.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	go followRadio(ctx, conn)

@@ -261,7 +261,7 @@ func (s *Settings) availableFor(d *Device) []dbus.ObjectPath {
 // publishConnections republishes the Connections property.
 func (s *Settings) publishConnections() {
 	if s.props != nil {
-		s.props.SetMust(ifaceSettings, "Connections", s.connPaths())
+		s.m.setProp(s.props, ifaceSettings, "Connections", s.connPaths())
 	}
 	s.m.mu.Lock()
 	devs := append([]*Device(nil), s.m.devices...)

@@ -266,8 +266,8 @@ func (d *Device) setState(state, reason uint32) {
 	d.state = state
 	d.mu.Unlock()
 	if d.props != nil {
-		d.props.SetMust(ifaceDevice, "State", state)
-		d.props.SetMust(ifaceDevice, "StateReason", deviceStateReason{state, reason})
+		d.m.setProp(d.props, ifaceDevice, "State", state)
+		d.m.setProp(d.props, ifaceDevice, "StateReason", deviceStateReason{state, reason})
 	}
 	_ = d.m.conn.Emit(d.path, ifaceDevice+".StateChanged", state, old, reason)
 }
@@ -278,7 +278,7 @@ func (d *Device) setActiveConnection(p dbus.ObjectPath) {
 	d.activeConn = p
 	d.mu.Unlock()
 	if d.props != nil {
-		d.props.SetMust(ifaceDevice, "ActiveConnection", p)
+		d.m.setProp(d.props, ifaceDevice, "ActiveConnection", p)
 	}
 }
 
@@ -289,8 +289,8 @@ func (d *Device) setIP4Config(ip4, dhcp4 dbus.ObjectPath) {
 	d.dhcp4 = dhcp4
 	d.mu.Unlock()
 	if d.props != nil {
-		d.props.SetMust(ifaceDevice, "Ip4Config", ip4)
-		d.props.SetMust(ifaceDevice, "Dhcp4Config", dhcp4)
+		d.m.setProp(d.props, ifaceDevice, "Ip4Config", ip4)
+		d.m.setProp(d.props, ifaceDevice, "Dhcp4Config", dhcp4)
 	}
 }
 
@@ -300,14 +300,14 @@ func (d *Device) setActiveAP(p dbus.ObjectPath) {
 	d.activeAP = p
 	d.mu.Unlock()
 	if d.props != nil && d.kind == core.KindWifi {
-		d.props.SetMust(ifaceWireless, "ActiveAccessPoint", p)
+		d.m.setProp(d.props, ifaceWireless, "ActiveAccessPoint", p)
 	}
 }
 
 // refreshAvailable recomputes and publishes AvailableConnections.
 func (d *Device) refreshAvailable() {
 	if d.props != nil {
-		d.props.SetMust(ifaceDevice, "AvailableConnections", d.availableConnections())
+		d.m.setProp(d.props, ifaceDevice, "AvailableConnections", d.availableConnections())
 	}
 }
 
@@ -317,7 +317,7 @@ func (d *Device) updateLink(li core.LinkInfo) {
 		return
 	}
 	if d.props != nil {
-		d.props.SetMust(ifaceWired, "Carrier", li.Carrier)
+		d.m.setProp(d.props, ifaceWired, "Carrier", li.Carrier)
 	}
 	d.mu.Lock()
 	was := d.carrier

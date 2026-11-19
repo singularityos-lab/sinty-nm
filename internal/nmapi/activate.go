@@ -18,31 +18,34 @@ func (m *Manager) onLinkEvent(li core.LinkInfo, up bool) {
 		m.mu.Lock()
 		d := m.devByIface[li.Name]
 		if d != nil {
-			kept := m.devices[:0]
-			for _, x := range m.devices {
-				if x != d {
-					kept = append(kept, x)
-				}
-			}
-			m.devices = kept
-			delete(m.devByPath, d.path)
-			delete(m.devByIface, li.Name)
+			m.removeDeviceLocked(d)
 		}
 		m.mu.Unlock()
 		if d != nil {
-			d.unexport()
-			_ = m.conn.Emit(RootPath, RootIface+".DeviceRemoved", d.path)
-			m.refreshRootLists()
+			m.announceRemoved(d)
 		}
 		return
 	}
 
 	m.mu.Lock()
 	d, existed := m.devByIface[li.Name]
+	var renamed *Device
 	if !existed {
+		for _, x := range m.devices {
+			if x.index == li.Index && x.iface != li.Name {
+				renamed = x
+				break
+			}
+		}
+		if renamed != nil {
+			m.removeDeviceLocked(renamed)
+		}
 		d = m.addDeviceLocked(li)
 	}
 	m.mu.Unlock()
+	if renamed != nil {
+		m.announceRemoved(renamed)
+	}
 	if existed {
 		d.updateLink(li)
 		return
@@ -58,6 +61,26 @@ func (m *Manager) onLinkEvent(li core.LinkInfo, up bool) {
 	if d.kind == core.KindEthernet {
 		go m.manageWired(d) // a wired device appeared: raise the link, sense carrier, autoconnect
 	}
+}
+
+func (m *Manager) removeDeviceLocked(d *Device) {
+	kept := m.devices[:0]
+	for _, x := range m.devices {
+		if x != d {
+			kept = append(kept, x)
+		}
+	}
+	m.devices = kept
+	delete(m.devByPath, d.path)
+	if m.devByIface[d.iface] == d {
+		delete(m.devByIface, d.iface)
+	}
+}
+
+func (m *Manager) announceRemoved(d *Device) {
+	d.unexport()
+	_ = m.conn.Emit(RootPath, RootIface+".DeviceRemoved", d.path)
+	m.refreshRootLists()
 }
 
 // onWifiEvent reflects backend wifi state transitions onto the device object and, on a
@@ -94,8 +117,8 @@ func (m *Manager) onRFKillEvent(soft, hard bool) {
 	if m.rootProps == nil {
 		return
 	}
-	m.rootProps.SetMust(RootIface, "WirelessHardwareEnabled", !hard)
-	m.rootProps.SetMust(RootIface, "WirelessEnabled", !(soft || hard))
+	m.setProp(m.rootProps, RootIface, "WirelessHardwareEnabled", !hard)
+	m.setProp(m.rootProps, RootIface, "WirelessEnabled", !(soft || hard))
 }
 
 // activate creates and exports an ActiveConnection in the activating state, moves the

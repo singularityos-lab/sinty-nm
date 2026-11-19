@@ -142,7 +142,7 @@ func (m *Manager) Export() error {
 
 	// Reflect the current radio hard-block on the hardware-enabled props.
 	if hard, err := m.b.RFKill.WifiHardBlocked(); err == nil {
-		m.rootProps.SetMust(RootIface, "WirelessHardwareEnabled", !hard)
+		m.setProp(m.rootProps, RootIface, "WirelessHardwareEnabled", !hard)
 	}
 	return nil
 }
@@ -461,7 +461,7 @@ func (m *Manager) CheckConnectivity() (uint32, *dbus.Error) {
 // handled via WirelessEnabled.
 func (m *Manager) Enable(enable bool) *dbus.Error {
 	if m.rootProps != nil {
-		m.rootProps.SetMust(RootIface, "NetworkingEnabled", enable)
+		m.setProp(m.rootProps, RootIface, "NetworkingEnabled", enable)
 	}
 	return nil
 }
@@ -593,7 +593,7 @@ func (m *Manager) pollConnectivity(ctx context.Context) {
 	m.connectivity = c
 	m.mu.Unlock()
 	if m.rootProps != nil {
-		m.rootProps.SetMust(RootIface, "Connectivity", uint32(c))
+		m.setProp(m.rootProps, RootIface, "Connectivity", uint32(c))
 	}
 	switch c {
 	case core.ConnFull:
@@ -615,7 +615,7 @@ func (m *Manager) setState(s uint32) {
 	m.state = s
 	m.mu.Unlock()
 	if m.rootProps != nil {
-		m.rootProps.SetMust(RootIface, "State", s)
+		m.setProp(m.rootProps, RootIface, "State", s)
 	}
 	_ = m.conn.Emit(RootPath, RootIface+".StateChanged", s)
 }
@@ -634,8 +634,19 @@ func (m *Manager) refreshRootLists() {
 	}
 	primary := m.primary
 	m.mu.Unlock()
-	m.rootProps.SetMust(RootIface, "Devices", managed)
-	m.rootProps.SetMust(RootIface, "AllDevices", all)
-	m.rootProps.SetMust(RootIface, "ActiveConnections", acs)
-	m.rootProps.SetMust(RootIface, "PrimaryConnection", primary)
+	m.setProp(m.rootProps, RootIface, "Devices", managed)
+	m.setProp(m.rootProps, RootIface, "AllDevices", all)
+	m.setProp(m.rootProps, RootIface, "ActiveConnections", acs)
+	m.setProp(m.rootProps, RootIface, "PrimaryConnection", primary)
+}
+
+func (m *Manager) setProp(p *prop.Properties, iface, name string, v any) {
+	defer func() {
+		if r := recover(); r != nil {
+			if m.conn.Connected() {
+				panic(r)
+			}
+		}
+	}()
+	p.SetMust(iface, name, v)
 }
