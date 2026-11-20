@@ -26,14 +26,15 @@ const maxSearchChars = 256
 
 // dnsManager merges per-interface DNS contributions into a single resolv.conf.
 type dnsManager struct {
-	mu      sync.Mutex
-	path    string
-	entries map[string]core.DNSEntry // keyed by DNSEntry.Iface
+	mu       sync.Mutex
+	path     string
+	entries  map[string]core.DNSEntry // keyed by DNSEntry.Iface
+	external string
 }
 
 // NewDNS returns a DNSManager that owns /etc/resolv.conf.
 func NewDNS() core.DNSManager {
-	return &dnsManager{path: resolvPath, entries: make(map[string]core.DNSEntry)}
+	return &dnsManager{path: resolvPath, entries: make(map[string]core.DNSEntry), external: ExternalDNSDir}
 }
 
 // Set stores or replaces the given interface's DNS entry and rewrites resolv.conf.
@@ -61,6 +62,9 @@ func (m *dnsManager) render() []byte {
 	entries := make([]core.DNSEntry, 0, len(m.entries))
 	for _, e := range m.entries {
 		entries = append(entries, e)
+	}
+	if m.external != "" {
+		entries = append(entries, readExternal(m.external)...)
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].Priority != entries[j].Priority {

@@ -87,12 +87,17 @@ func main() {
 		rfk = sys.NewNullRFKill()
 	}
 
+	dns := sys.NewDNS()
+	if w, ok := dns.(interface{ WatchExternal() }); ok {
+		w.WatchExternal()
+	}
+
 	backends := nmapi.Backends{
 		Link:   link,
 		Wifi:   wifi,
 		DHCP:   dhcp.New(),
 		WG:     wgb,
-		DNS:    sys.NewDNS(),
+		DNS:    dns,
 		RFKill: rfk,
 		Conn:   sys.NewConnChecker(""),
 	}
