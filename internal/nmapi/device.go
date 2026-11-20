@@ -54,7 +54,7 @@ func newDevice(m *Manager, li core.LinkInfo) *Device {
 		kind:       li.Kind,
 		nmType:     deviceTypeFor(li.Kind),
 		mac:        li.MAC,
-		managed:    li.Kind != core.KindLoopback,
+		managed:    li.Kind != core.KindLoopback && !li.Gadget,
 		apByHandle: map[string]*AccessPoint{},
 		activeAP:   nullPath,
 		activeConn: nullPath,

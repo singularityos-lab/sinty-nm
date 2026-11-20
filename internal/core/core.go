@@ -37,6 +37,7 @@ type LinkInfo struct {
 	Carrier bool // link-layer carrier present (operationally up)
 	MAC     string
 	MTU     int
+	Gadget  bool // device side of a USB gadget network function, owned by whoever built the gadget
 }
 
 // AddrInfo is an address configured on a link.

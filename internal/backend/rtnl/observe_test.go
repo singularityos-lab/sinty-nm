@@ -1,6 +1,8 @@
 package rtnl
 
 import (
+	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 
@@ -55,5 +57,31 @@ func TestIPv4MatchesKernel(t *testing.T) {
 		if !found {
 			t.Fatalf("%s: %v/%d not among the kernel addresses", li.Name, l.IP, l.PrefixLen)
 		}
+	}
+}
+
+func TestIsGadgetFollowsTheParentDevice(t *testing.T) {
+	root := t.TempDir()
+	old := sysClassNet
+	sysClassNet = filepath.Join(root, "class", "net")
+	t.Cleanup(func() { sysClassNet = old })
+	for name, parent := range map[string]string{"usb0": "udc/gadget.0", "eth0": "pci/0000:00:1f.6"} {
+		dev := filepath.Join(root, "devices", parent)
+		if err := os.MkdirAll(dev, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(sysClassNet, name)
+		if err := os.MkdirAll(link, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(dev, filepath.Join(link, "device")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !isGadget("usb0") {
+		t.Error("usb0 under a gadget is not reported as one")
+	}
+	if isGadget("eth0") || isGadget("lo") {
+		t.Error("a non-gadget link is reported as a gadget")
 	}
 }

@@ -3,6 +3,8 @@ package rtnl
 import (
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
@@ -149,6 +151,7 @@ func parseLink(data []byte) (core.LinkInfo, bool) {
 	// operstate of IF_OPER_UP.
 	li.Carrier = flags&iffLowerUp != 0 || operstate == ifOperUp
 	li.Kind = classify(li.Name, arphrd, flags, infoKind)
+	li.Gadget = isGadget(li.Name)
 	return li, true
 }
 
@@ -194,6 +197,21 @@ func isWireless(name string) bool {
 	}
 	_, err := os.Stat("/sys/class/net/" + name + "/phy80211")
 	return err == nil
+}
+
+var sysClassNet = "/sys/class/net"
+
+// isGadget reports whether the interface is the device side of a USB gadget network
+// function: its parent device is the gadget of a USB device controller.
+func isGadget(name string) bool {
+	if name == "" {
+		return false
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Join(sysClassNet, name, "device"))
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(filepath.Base(parent), "gadget")
 }
 
 // cstr trims a null-terminated netlink string attribute to its Go string.
