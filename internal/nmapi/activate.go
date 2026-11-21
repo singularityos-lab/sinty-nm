@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 
@@ -178,10 +179,14 @@ func (m *Manager) runActivation(ctx context.Context, ac *ActiveConnection, sc *S
 		log.Printf("activation of %s on %s failed: %v", sc.id, dev.iface, err)
 		dev.setState(devStateFailed, devReasonNone)
 		m.deactivate(ac)
+		m.retryWired(dev)
 		return
 	}
 	ac.setState(acStateActivated, devReasonNone)
 	dev.setState(devStateActivated, devReasonNone)
+	dev.mu.Lock()
+	dev.autoTries = 0
+	dev.mu.Unlock()
 	m.mu.Lock()
 	m.primary = ac.path
 	m.mu.Unlock()
@@ -241,9 +246,37 @@ func (m *Manager) configureDHCP(ctx context.Context, ac *ActiveConnection, sc *S
 		}
 		log.Printf("sinty-nmd: %v, using a link-local address", err)
 		lease = core.LinkLocalLease(mac)
+		sc.mergeDNS(lease)
+		if err := m.applyLease(ac, dev, lease, nil); err != nil {
+			return err
+		}
+		go m.keepAskingDHCP(ctx, ac, sc, dev, mac)
+		return nil
 	}
 	sc.mergeDNS(lease)
 	return m.applyLease(ac, dev, lease, nil)
+}
+
+func (m *Manager) keepAskingDHCP(ctx context.Context, ac *ActiveConnection, sc *SettingsConnection, dev *Device, mac net.HardwareAddr) {
+	for tries := 1; ; tries++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wiredRetryDelay(tries)):
+		}
+		lease, err := m.b.DHCP.Acquire(ctx, dev.iface, mac)
+		if err != nil {
+			continue
+		}
+		if m.superseded(ctx, ac) {
+			return
+		}
+		sc.mergeDNS(lease)
+		if err := m.applyLease(ac, dev, lease, nil); err != nil {
+			log.Printf("sinty-nmd: lease for %s arrived after link-local but could not be applied: %v", dev.iface, err)
+		}
+		return
+	}
 }
 
 // applyLease applies address, default route, and DNS, then publishes an IP4Config on the

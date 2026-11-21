@@ -1,6 +1,8 @@
 package nmapi
 
 import (
+	"time"
+
 	"github.com/godbus/dbus/v5"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
@@ -73,9 +75,9 @@ func (m *Manager) manageWired(d *Device) {
 	// race where SetUp fires before the event subscription is bound and the carrier-up
 	// notification is missed. A slow-negotiating NIC that is not up yet still gets picked up
 	// later by the carrier-up event in updateLink.
-	if li, err := m.b.Link.LinkByName(d.iface); err == nil {
+	if li, err := m.b.Link.LinkByName(d.iface); err == nil && li.Carrier {
 		d.mu.Lock()
-		d.carrier = li.Carrier
+		d.carrier = true
 		d.mu.Unlock()
 	}
 	m.autoConnectWired(d)
@@ -89,4 +91,37 @@ func (m *Manager) firstWiredProfile(d *Device) *SettingsConnection {
 		}
 	}
 	return nil
+}
+
+var wiredRetryDelay = func(tries int) time.Duration {
+	d := 5 * time.Second << uint(tries-1)
+	if tries > 4 || d > time.Minute {
+		return time.Minute
+	}
+	return d
+}
+
+func (m *Manager) retryWired(d *Device) {
+	if d == nil || d.kind != core.KindEthernet || !d.managed {
+		return
+	}
+	d.mu.Lock()
+	if !d.autoWired || !d.carrier {
+		d.mu.Unlock()
+		return
+	}
+	d.autoTries++
+	tries := d.autoTries
+	d.mu.Unlock()
+	time.AfterFunc(wiredRetryDelay(tries), func() {
+		d.mu.Lock()
+		again := d.carrier && d.autoWired && d.autoTries == tries && d.activeConn == nullPath
+		if again {
+			d.autoWired = false
+		}
+		d.mu.Unlock()
+		if again {
+			m.autoConnectWired(d)
+		}
+	})
 }

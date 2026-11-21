@@ -42,6 +42,7 @@ type Device struct {
 	state      uint32
 	carrier    bool // last-known link carrier (ethernet)
 	autoWired  bool // a default wired autoconnect has been kicked for the current carrier
+	autoTries  int
 }
 
 // newDevice builds an unexported Device from a link.
@@ -324,6 +325,7 @@ func (d *Device) updateLink(li core.LinkInfo) {
 	d.carrier = li.Carrier
 	if !li.Carrier {
 		d.autoWired = false // cable unplugged: allow a fresh autoconnect on the next carrier
+		d.autoTries = 0
 	}
 	d.mu.Unlock()
 	// Carrier just came up (cable plugged, or link negotiated at boot): bring the wired
