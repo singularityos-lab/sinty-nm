@@ -187,3 +187,59 @@ func TestAdoptedWifiLeasesWhenNoAddressAppears(t *testing.T) {
 		t.Fatal("leased DNS not registered")
 	}
 }
+
+type ownLink struct {
+	fakeLink
+}
+
+func (ownLink) IPv4(index int) (*core.Lease, error) {
+	if index != 3 {
+		return &core.Lease{}, nil
+	}
+	return &core.Lease{IP: net.IPv4(192, 168, 1, 23).To4(), PrefixLen: 24, Gateway: net.IPv4(192, 168, 1, 1).To4()}, nil
+}
+
+func adoptWith(t *testing.T, dh *fakeDHCP) *recordDNS {
+	t.Helper()
+	dir := t.TempDir()
+	resolv := filepath.Join(dir, "resolv.conf")
+	if err := os.WriteFile(resolv, []byte("# managed by sinty-nm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldResolv, oldDir, oldDelay := resolvConf, resolvconfDir, observeDelay
+	resolvConf, resolvconfDir, observeDelay = resolv, filepath.Join(dir, "none"), time.Millisecond
+	t.Cleanup(func() { resolvConf, resolvconfDir, observeDelay = oldResolv, oldDir, oldDelay })
+
+	conn := privateBus(t)
+	dns := &recordDNS{}
+	m, err := New(conn, Backends{Link: ownLink{}, Wifi: &fakeWifi{}, DHCP: dh, DNS: dns, RFKill: fakeRF{}, Conn: offlineConn{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Export(); err != nil {
+		t.Fatal(err)
+	}
+	m.onWifiEvent(core.WifiEvent{Device: "wlan0", State: core.WifiConnected, ConnectedSSID: []byte("Casa")})
+	waitFor(t, "dns registered", func() bool {
+		e, ok := dns.entry("wlan0")
+		return ok && len(e.Nameservers) > 0
+	})
+	return dns
+}
+
+func TestAdoptedWifiKeepsTheResolversOfOurOwnLease(t *testing.T) {
+	own := &core.Lease{IP: net.IPv4(192, 168, 1, 23).To4(), PrefixLen: 24, DNS: []net.IP{net.IPv4(192, 168, 1, 254)}, Domains: []string{"lan"}}
+	dns := adoptWith(t, &fakeDHCP{wifi: &fakeWifi{}, dead: "Dead", failing: "Broken", bound: own})
+	e, _ := dns.entry("wlan0")
+	if len(e.Nameservers) != 1 || !e.Nameservers[0].Equal(net.IPv4(192, 168, 1, 254)) || len(e.Domains) != 1 {
+		t.Fatalf("adopted entry %+v", e)
+	}
+}
+
+func TestAdoptedWifiWithoutResolversLeasesInstead(t *testing.T) {
+	dns := adoptWith(t, &fakeDHCP{wifi: &fakeWifi{}, dead: "Dead", failing: "Broken"})
+	e, _ := dns.entry("wlan0")
+	if len(e.Nameservers) != 1 || !e.Nameservers[0].Equal(net.IPv4(192, 168, 1, 1)) {
+		t.Fatalf("entry %+v", e)
+	}
+}

@@ -180,6 +180,7 @@ type WifiBackend interface {
 type DHCPClient interface {
 	Acquire(ctx context.Context, ifname string, mac net.HardwareAddr) (*Lease, error)
 	Release(ifname string) error
+	Bound(ifname string) *Lease
 }
 
 // WGBackend configures WireGuard interfaces via the wireguard netlink family.

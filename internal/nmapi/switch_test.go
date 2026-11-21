@@ -62,6 +62,7 @@ type fakeDHCP struct {
 	wifi    *fakeWifi
 	dead    string
 	failing string
+	bound   *core.Lease
 }
 
 func (d *fakeDHCP) Acquire(ctx context.Context, _ string, _ net.HardwareAddr) (*core.Lease, error) {
@@ -75,9 +76,11 @@ func (d *fakeDHCP) Acquire(ctx context.Context, _ string, _ net.HardwareAddr) (*
 	case d.failing:
 		return nil, errors.New("no lease")
 	}
-	return &core.Lease{IP: net.IPv4(192, 168, 1, 50), PrefixLen: 24, Gateway: net.IPv4(192, 168, 1, 1)}, nil
+	return &core.Lease{IP: net.IPv4(192, 168, 1, 50), PrefixLen: 24, Gateway: net.IPv4(192, 168, 1, 1), DNS: []net.IP{net.IPv4(192, 168, 1, 1)}}, nil
 }
 func (*fakeDHCP) Release(string) error { return nil }
+
+func (d *fakeDHCP) Bound(string) *core.Lease { return d.bound }
 
 type fakeDNS struct{}
 

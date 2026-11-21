@@ -86,19 +86,33 @@ func (m *Manager) adoptWifi(d *Device, ssid []byte) {
 	go m.pollConnectivity(m.runCtx())
 }
 
+// observeIPv4 adopts the address another agent configured on d, with the resolvers that
+// came with it: iwd's resolvconf entries, or our own lease when the address is the one
+// this daemon leased before a reconnect. An address with no known resolver is not
+// adopted; the caller leases instead, so the link never ends up without DNS.
 func (m *Manager) observeIPv4(ac *ActiveConnection, d *Device) bool {
 	ctx := m.runCtx()
 	for i := 0; i < observeTries; i++ {
 		if l, err := m.b.Link.IPv4(d.index); err == nil && l.IP != nil {
 			l.DNS, l.Domains = adoptedResolver(d.iface)
-			m.mu.Lock()
-			live := m.activeConns[ac.path] == ac
-			m.mu.Unlock()
-			if live {
-				_ = m.b.DNS.Set(core.DNSEntry{Iface: d.iface, Nameservers: l.DNS, Domains: l.Domains, Priority: 100})
-				m.publishIP4(ac, d, l)
+			if len(l.DNS) == 0 {
+				if own := m.b.DHCP.Bound(d.iface); own != nil && own.IP.Equal(l.IP) && len(own.DNS) > 0 {
+					l.DNS, l.Domains = own.DNS, own.Domains
+				}
 			}
-			return true
+			if len(l.DNS) > 0 || i == observeTries-1 {
+				if len(l.DNS) == 0 {
+					return false
+				}
+				m.mu.Lock()
+				live := m.activeConns[ac.path] == ac
+				m.mu.Unlock()
+				if live {
+					_ = m.b.DNS.Set(core.DNSEntry{Iface: d.iface, Nameservers: l.DNS, Domains: l.Domains, Priority: 100})
+					m.publishIP4(ac, d, l)
+				}
+				return true
+			}
 		}
 		select {
 		case <-ctx.Done():

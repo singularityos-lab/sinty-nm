@@ -27,6 +27,7 @@ type leaseState struct {
 	mac      net.HardwareAddr
 	clientIP net.IP
 	serverID net.IP
+	lease    core.Lease
 }
 
 // Client is the DHCPv4 client. It holds only the last lease per interface, enough to
@@ -75,7 +76,7 @@ func (c *Client) Acquire(ctx context.Context, ifname string, mac net.HardwareAdd
 		lease, err := c.handshake(ctx, sock, mac)
 		if err == nil {
 			c.mu.Lock()
-			c.leases[ifname] = leaseState{mac: mac, clientIP: lease.IP, serverID: lease.ServerID}
+			c.leases[ifname] = leaseState{mac: mac, clientIP: lease.IP, serverID: lease.ServerID, lease: *lease}
 			c.mu.Unlock()
 			return lease, nil
 		}
@@ -140,6 +141,18 @@ func (c *Client) handshake(ctx context.Context, sock *rawSock, mac net.HardwareA
 
 // Release sends a DHCPRELEASE for the last lease tracked on ifname, unicast to the server
 // that granted it. It is a best-effort no-op when no lease is tracked.
+// Bound returns a copy of the last lease acquired on ifname, or nil when none is held.
+func (c *Client) Bound(ifname string) *core.Lease {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st, ok := c.leases[ifname]
+	if !ok {
+		return nil
+	}
+	lease := st.lease
+	return &lease
+}
+
 func (c *Client) Release(ifname string) error {
 	c.mu.Lock()
 	st, ok := c.leases[ifname]
