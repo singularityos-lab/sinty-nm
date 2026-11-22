@@ -64,7 +64,10 @@ func TestAdoptedWifiPublishesTheKernelIPv4(t *testing.T) {
 	if link.calls.Load() < 3 {
 		t.Fatalf("published before the address existed: %d calls", link.calls.Load())
 	}
+	dev.mu.Lock()
 	spec := dev.ip4obj.spec[ifaceIP4]
+	ip4 := dev.ip4
+	dev.mu.Unlock()
 	data := spec["AddressData"].Value.([]map[string]dbus.Variant)
 	if len(data) != 1 || data[0]["address"].Value() != "192.168.1.3" || data[0]["prefix"].Value() != uint32(24) {
 		t.Fatalf("AddressData %v", data)
@@ -77,12 +80,12 @@ func TestAdoptedWifiPublishesTheKernelIPv4(t *testing.T) {
 		t.Fatalf("Nameservers %v", ns)
 	}
 	m.mu.Lock()
-	var ac *ActiveConnection
+	var carried dbus.ObjectPath
 	for _, a := range m.activeConns {
-		ac = a
+		carried = a.ip4
 	}
 	m.mu.Unlock()
-	if ac == nil || ac.ip4 != dev.ip4 {
+	if carried != ip4 {
 		t.Fatalf("active connection does not carry the config")
 	}
 	e, ok := dns.entry("wlan0")

@@ -307,16 +307,21 @@ func (m *Manager) applyLease(ac *ActiveConnection, dev *Device, lease *core.Leas
 func (m *Manager) publishIP4(ac *ActiveConnection, dev *Device, lease *core.Lease) {
 	ip4 := m.newIP4Config(lease)
 	if err := ip4.export(); err == nil {
+		dev.mu.Lock()
 		dev.ip4obj = ip4
+		dev.mu.Unlock()
 		dev.setIP4Config(ip4.path, nullPath)
 		ac.setIP4(ip4.path)
 	}
 }
 
 func (m *Manager) dropIP4(dev *Device) {
-	if dev.ip4obj != nil {
-		dev.ip4obj.unexport()
-		dev.ip4obj = nil
+	dev.mu.Lock()
+	old := dev.ip4obj
+	dev.ip4obj = nil
+	dev.mu.Unlock()
+	if old != nil {
+		old.unexport()
 	}
 	dev.setIP4Config(nullPath, nullPath)
 }

@@ -100,7 +100,9 @@ func (ac *ActiveConnection) unexport() {
 
 // setState updates State and emits Connection.Active.StateChanged.
 func (ac *ActiveConnection) setState(state, reason uint32) {
+	ac.m.mu.Lock()
 	ac.state = state
+	ac.m.mu.Unlock()
 	if ac.props != nil {
 		ac.m.setProp(ac.props, ifaceActive, "State", state)
 	}
@@ -109,7 +111,9 @@ func (ac *ActiveConnection) setState(state, reason uint32) {
 
 // setIP4 publishes the Ip4Config path.
 func (ac *ActiveConnection) setIP4(p dbus.ObjectPath) {
+	ac.m.mu.Lock()
 	ac.ip4 = p
+	ac.m.mu.Unlock()
 	if ac.props != nil {
 		ac.m.setProp(ac.props, ifaceActive, "Ip4Config", p)
 	}

@@ -137,6 +137,12 @@ func wifiProfile(m *Manager, ssid string) *SettingsConnection {
 	return sc
 }
 
+func locked[T any](mu sync.Locker, v *T) T {
+	mu.Lock()
+	defer mu.Unlock()
+	return *v
+}
+
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -182,22 +188,23 @@ func TestSwitchingWifiReplacesTheStuckConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "stuck in dhcp", func() bool { return dev.state == devStateIPConfig })
+	waitFor(t, "stuck in dhcp", func() bool { return locked(&dev.mu, &dev.state) == devStateIPConfig })
 
 	next, err := m.activate(good, dev, nullPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "second network activated", func() bool { return next.state == acStateActivated })
+	waitFor(t, "second network activated", func() bool { return locked(&m.mu, &next.state) == acStateActivated })
 
 	if ids := activeIDs(m); len(ids) != 1 || ids[0] != "Good" {
 		t.Fatalf("active connections after switch: %v", ids)
 	}
-	if !stuck.gone || stuck.state != acStateDeactivated {
-		t.Fatalf("first connection still alive: gone=%v state=%d", stuck.gone, stuck.state)
+	if gone, state := locked(&m.mu, &stuck.gone), locked(&m.mu, &stuck.state); !gone || state != acStateDeactivated {
+		t.Fatalf("first connection still alive: gone=%v state=%d", gone, state)
 	}
-	if dev.activeConn != next.path || dev.state != devStateActivated {
-		t.Fatalf("device points at %s state %d", dev.activeConn, dev.state)
+	waitFor(t, "device activated", func() bool { return locked(&dev.mu, &dev.state) == devStateActivated })
+	if p := locked(&dev.mu, &dev.activeConn); p != next.path {
+		t.Fatalf("device points at %s", p)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -213,15 +220,15 @@ func TestDisconnectAndDeleteActiveWifi(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "activated", func() bool { return ac.state == acStateActivated })
+	waitFor(t, "activated", func() bool { return locked(&m.mu, &ac.state) == acStateActivated })
 	if derr := good.Delete(); derr != nil {
 		t.Fatal(derr)
 	}
 	if ids := activeIDs(m); len(ids) != 0 {
 		t.Fatalf("deleted profile still active: %v", ids)
 	}
-	if dev.activeConn != nullPath || dev.state != devStateDisconnected {
-		t.Fatalf("device after delete: %s state %d", dev.activeConn, dev.state)
+	if p, state := locked(&dev.mu, &dev.activeConn), locked(&dev.mu, &dev.state); p != nullPath || state != devStateDisconnected {
+		t.Fatalf("device after delete: %s state %d", p, state)
 	}
 	if m.settings.byPath(good.path) != nil {
 		t.Fatal("profile still listed")
@@ -235,7 +242,7 @@ func TestFailedActivationDoesNotStayActive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "failure settled", func() bool { return ac.gone })
+	waitFor(t, "failure settled", func() bool { return locked(&m.mu, &ac.gone) })
 	if ids := activeIDs(m); len(ids) != 0 {
 		t.Fatalf("failed connection still listed: %v", ids)
 	}
