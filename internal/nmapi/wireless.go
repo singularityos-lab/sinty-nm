@@ -18,6 +18,10 @@ func (d *Device) scanAndPopulate() {
 	if activating {
 		return
 	}
+	if !d.m.wifiWanted() {
+		_ = d.m.b.Wifi.SetPowered(d.iface, false)
+		return
+	}
 	_ = d.m.b.Wifi.SetPowered(d.iface, true)
 	_ = d.m.b.Wifi.Scan(d.iface)
 	d.populateAPs()

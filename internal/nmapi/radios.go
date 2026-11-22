@@ -53,6 +53,12 @@ func (m *Manager) keepRadios(edit func(*radios)) {
 	}
 }
 
+func (m *Manager) wifiWanted() bool {
+	m.radiosMu.Lock()
+	defer m.radiosMu.Unlock()
+	return m.radios.Wireless
+}
+
 func (m *Manager) restoreRadios() {
 	m.radiosMu.Lock()
 	r := m.radios
