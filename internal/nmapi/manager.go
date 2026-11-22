@@ -24,6 +24,8 @@ type Backends struct {
 	RFKill core.RFKill
 	Conn   core.ConnChecker
 	Wwan   core.WwanBackend
+
+	RadiosFile string
 }
 
 // Manager is the root org.freedesktop.NetworkManager object plus the live registries of
@@ -54,6 +56,9 @@ type Manager struct {
 
 	wwanMu sync.Mutex
 
+	radiosMu sync.Mutex
+	radios   radios
+
 	ctx context.Context
 }
 
@@ -71,6 +76,7 @@ func New(conn *dbus.Conn, b Backends) (*Manager, error) {
 		connectivity: core.ConnUnknown,
 		primary:      nullPath,
 		ctx:          context.Background(),
+		radios:       loadRadios(b.RadiosFile),
 	}
 	m.om = newObjectManager(m)
 
@@ -108,9 +114,9 @@ func (m *Manager) Export() error {
 			"ActiveConnections":       {Value: []dbus.ObjectPath{}, Writable: false, Emit: prop.EmitTrue},
 			"PrimaryConnection":       {Value: m.primary, Writable: false, Emit: prop.EmitTrue},
 			"NetworkingEnabled":       {Value: true, Writable: false, Emit: prop.EmitTrue},
-			"WirelessEnabled":         {Value: true, Writable: true, Emit: prop.EmitTrue, Callback: m.onSetWirelessEnabled},
+			"WirelessEnabled":         {Value: m.radios.Wireless, Writable: true, Emit: prop.EmitTrue, Callback: m.onSetWirelessEnabled},
 			"WirelessHardwareEnabled": {Value: true, Writable: false, Emit: prop.EmitTrue},
-			"WwanEnabled":             {Value: true, Writable: true, Emit: prop.EmitTrue, Callback: m.onSetWwanEnabled},
+			"WwanEnabled":             {Value: m.radios.Wwan, Writable: true, Emit: prop.EmitTrue, Callback: m.onSetWwanEnabled},
 			"WwanHardwareEnabled":     {Value: true, Writable: false, Emit: prop.EmitTrue},
 		},
 	}
@@ -157,6 +163,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	m.mu.Lock()
 	m.ctx = ctx
 	m.mu.Unlock()
+	m.restoreRadios()
 
 	go func() {
 		_ = m.b.Link.Subscribe(ctx, m.onLinkEvent)
@@ -498,6 +505,7 @@ func (m *Manager) NMState() (uint32, *dbus.Error) {
 func (m *Manager) onSetWirelessEnabled(c *prop.Change) *dbus.Error {
 	on, _ := c.Value.(bool)
 	go func() {
+		m.keepRadios(func(r *radios) { r.Wireless = on })
 		_ = m.b.RFKill.SetWifiBlocked(!on)
 		m.mu.Lock()
 		devs := append([]*Device(nil), m.devices...)
@@ -516,9 +524,11 @@ func (m *Manager) onSetWwanEnabled(c *prop.Change) *dbus.Error {
 	go func() {
 		m.wwanMu.Lock()
 		defer m.wwanMu.Unlock()
-		if got := m.applyWwan(on); got != on {
+		got := m.applyWwan(on)
+		if got != on {
 			m.rootProps.SetMust(RootIface, "WwanEnabled", got)
 		}
+		m.keepRadios(func(r *radios) { r.Wwan = got })
 	}()
 	return nil
 }

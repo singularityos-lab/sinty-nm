@@ -20,6 +20,8 @@ import (
 	"github.com/singularityos-lab/sinty-nm/internal/nmapi"
 )
 
+const radiosFile = "/var/lib/sinty-nm/radios.json"
+
 // connectBus waits for the system bus to accept connections, retrying through the boot
 // window where dbus.service has been spawned but its socket is not serving yet. The godbus
 // default address is /var/run/dbus/system_bus_socket, which only resolves where /var/run
@@ -102,6 +104,8 @@ func main() {
 		RFKill: rfk,
 		Conn:   sys.NewConnChecker(""),
 		Wwan:   mm.New(conn),
+
+		RadiosFile: radiosFile,
 	}
 
 	mgr, err := nmapi.New(conn, backends)
