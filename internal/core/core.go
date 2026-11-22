@@ -195,6 +195,10 @@ type DNSManager interface {
 	Revert(iface string) error
 }
 
+type WwanBackend interface {
+	SetPowered(on bool) error
+}
+
 // RFKill exposes and toggles the wifi radio soft/hard block.
 type RFKill interface {
 	WifiSoftBlocked() (bool, error)

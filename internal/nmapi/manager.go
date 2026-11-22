@@ -2,6 +2,7 @@ package nmapi
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ type Backends struct {
 	DNS    core.DNSManager
 	RFKill core.RFKill
 	Conn   core.ConnChecker
+	Wwan   core.WwanBackend
 }
 
 // Manager is the root org.freedesktop.NetworkManager object plus the live registries of
@@ -49,6 +51,8 @@ type Manager struct {
 	state        uint32
 	connectivity core.Connectivity
 	primary      dbus.ObjectPath
+
+	wwanMu sync.Mutex
 
 	ctx context.Context
 }
@@ -507,10 +511,27 @@ func (m *Manager) onSetWirelessEnabled(c *prop.Change) *dbus.Error {
 	return nil
 }
 
-// onSetWwanEnabled accepts the Set; we have no WWAN hardware backend, so it is a no-op
-// beyond recording the flag.
 func (m *Manager) onSetWwanEnabled(c *prop.Change) *dbus.Error {
+	on, _ := c.Value.(bool)
+	go func() {
+		m.wwanMu.Lock()
+		defer m.wwanMu.Unlock()
+		if got := m.applyWwan(on); got != on {
+			m.rootProps.SetMust(RootIface, "WwanEnabled", got)
+		}
+	}()
 	return nil
+}
+
+func (m *Manager) applyWwan(on bool) bool {
+	if m.b.Wwan == nil {
+		return on
+	}
+	if err := m.b.Wwan.SetPowered(on); err != nil {
+		log.Printf("wwan: %v", err)
+		return !on
+	}
+	return on
 }
 
 // addDeviceLocked creates and registers a Device from a link. mu must be held.

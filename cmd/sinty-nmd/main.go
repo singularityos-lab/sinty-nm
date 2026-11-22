@@ -11,6 +11,7 @@ import (
 
 	"github.com/singularityos-lab/sinty-nm/internal/backend/dhcp"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/iwd"
+	"github.com/singularityos-lab/sinty-nm/internal/backend/mm"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/rtnl"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/sys"
 	"github.com/singularityos-lab/sinty-nm/internal/backend/wg"
@@ -100,6 +101,7 @@ func main() {
 		DNS:    dns,
 		RFKill: rfk,
 		Conn:   sys.NewConnChecker(""),
+		Wwan:   mm.New(conn),
 	}
 
 	mgr, err := nmapi.New(conn, backends)
