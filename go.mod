@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/godbus/dbus/v5 v5.1.0
-	github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261124184342-6a03a013db08
+	github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261124190041-c7419766d06e
 	golang.org/x/sys v0.47.0
 )
 

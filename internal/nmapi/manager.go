@@ -3,6 +3,7 @@ package nmapi
 import (
 	"context"
 	"log"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/godbus/dbus/v5/prop"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
+
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/netkind"
 )
 
 // Backends is the wiring seam: main plugs the concrete rtnl/iwd/dhcp/wg/sys
@@ -200,6 +203,7 @@ func (m *Manager) Run(ctx context.Context) error {
 		go d.scanAndPopulate()
 	}
 	go m.rescanLoop(ctx, wifiDevs)
+	go netkind.Watch(ctx, filepath.Dir(domainNetwork), m.publishNetworkKind)
 
 	m.pollConnectivity(ctx)
 	ticker := time.NewTicker(connectivityInterval)
