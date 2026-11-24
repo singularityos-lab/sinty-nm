@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/mirkobrombin/atomloops/sealedlog"
 	"log"
 	"os"
 	"os/signal"
@@ -47,10 +48,16 @@ func connectBus() (*dbus.Conn, error) {
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("sinty-nmd: ")
+	sealed, _ := sealedlog.Open("sinty-nm")
+	sealed.Log("start")
+	fatal := func(stage uint64, format string, args ...any) {
+		sealed.Log("fail", stage)
+		log.Fatalf(format, args...)
+	}
 
 	conn, err := connectBus()
 	if err != nil {
-		log.Fatalf("system bus: %v", err)
+		fatal(1, "system bus: %v", err)
 	}
 	defer conn.Close()
 
@@ -59,25 +66,25 @@ func main() {
 	// already running, we refuse rather than fight for the name.
 	reply, err := conn.RequestName(nmapi.BusName, dbus.NameFlagDoNotQueue)
 	if err != nil {
-		log.Fatalf("request name %s: %v", nmapi.BusName, err)
+		fatal(2, "request name %s: %v", nmapi.BusName, err)
 	}
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		log.Fatalf("%s already owned (real NetworkManager running?) - not starting", nmapi.BusName)
+		fatal(3, "%s already owned (real NetworkManager running?) - not starting", nmapi.BusName)
 	}
 
 	link, err := rtnl.New()
 	if err != nil {
-		log.Fatalf("rtnl backend: %v", err)
+		fatal(4, "rtnl backend: %v", err)
 	}
 	var wifi core.WifiBackend
 	if os.Getenv("SINTY_NM_WIFI") == "wpa" {
 		wifi = wpa.New()
 	} else if wifi, err = iwd.New(conn); err != nil {
-		log.Fatalf("iwd backend: %v", err)
+		fatal(5, "iwd backend: %v", err)
 	}
 	wgb, err := wg.New()
 	if err != nil {
-		log.Fatalf("wireguard backend: %v", err)
+		fatal(6, "wireguard backend: %v", err)
 	}
 
 	var rfk core.RFKill
@@ -110,12 +117,13 @@ func main() {
 
 	mgr, err := nmapi.New(conn, backends)
 	if err != nil {
-		log.Fatalf("nmapi: %v", err)
+		fatal(7, "nmapi: %v", err)
 	}
 	if err := mgr.Export(); err != nil {
-		log.Fatalf("export: %v", err)
+		fatal(8, "export: %v", err)
 	}
 	log.Printf("owning %s; serving NetworkManager API", nmapi.BusName)
+	sealed.Log("ready")
 
 	ctx, stop := signal.NotifyContext(conn.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -123,7 +131,7 @@ func main() {
 	go followRadio(ctx, conn)
 
 	if err := mgr.Run(ctx); err != nil && ctx.Err() == nil {
-		log.Fatalf("run: %v", err)
+		fatal(9, "run: %v", err)
 	}
 	_ = os.Stdin
 }
