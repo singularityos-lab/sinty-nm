@@ -1,33 +1,27 @@
 package nmapi
 
 import (
+	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/netkind"
 )
 
 var (
-	netKindDir    = "/run/sinty-nm"
+	netKindDir    = netkind.Dir
 	domainNetwork = "/run/sinty-domaind/network"
 )
 
-const (
-	KindNone   = "none"
-	KindPublic = "public"
-	KindHome   = "home"
-	KindWork   = "work"
-)
-
-func classify(conn map[string]dbus.Variant, typ, uuid, domainUUID string) (string, bool) {
-	kind := KindPublic
+func classify(conn map[string]dbus.Variant, typ, uuid, domainUUID string) (netkind.Kind, bool) {
+	kind := netkind.Public
 	switch zone := variantString(conn, "zone"); {
 	case uuid != "" && uuid == domainUUID:
-		kind = KindWork
+		kind = netkind.Work
 	case zone == "home" || zone == "trusted":
-		kind = KindHome
+		kind = netkind.Home
 	}
 	metered := typ == "gsm" || typ == "cdma" || typ == "bluetooth"
 	if v, ok := conn["metered"]; ok {
@@ -67,7 +61,7 @@ func (m *Manager) publishNetworkKind() {
 		conn, typ, uuid = ac.conn, ac.typ, ac.uuid
 	}
 	m.mu.Unlock()
-	kind, metered := KindNone, false
+	kind, metered := netkind.None, false
 	if ac != nil {
 		var group map[string]dbus.Variant
 		if m.settings != nil {
@@ -80,20 +74,7 @@ func (m *Manager) publishNetworkKind() {
 		domain, _ := os.ReadFile(domainNetwork)
 		kind, metered = classify(group, typ, uuid, strings.TrimSpace(string(domain)))
 	}
-	writeNetworkKind(netKindDir, kind, metered)
-}
-
-func writeNetworkKind(dir, kind string, metered bool) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
-	}
-	tmp := filepath.Join(dir, ".network-kind")
-	if os.WriteFile(tmp, []byte(kind+"\n"), 0o644) == nil {
-		os.Rename(tmp, filepath.Join(dir, "network-kind"))
-	}
-	if metered {
-		os.WriteFile(filepath.Join(dir, "metered"), nil, 0o644)
-	} else {
-		os.Remove(filepath.Join(dir, "metered"))
+	if err := netkind.Write(netKindDir, kind, metered); err != nil {
+		log.Printf("network kind: %v", err)
 	}
 }
