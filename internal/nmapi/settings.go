@@ -370,6 +370,7 @@ func (sc *SettingsConnection) Update(settings map[string]map[string]dbus.Variant
 		return dbus.MakeFailedError(err)
 	}
 	_ = sc.s.m.conn.Emit(sc.path, ifaceConnection+".Updated")
+	sc.s.m.publishNetworkKind()
 	return nil
 }
 

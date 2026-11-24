@@ -669,6 +669,7 @@ func (m *Manager) refreshRootLists() {
 	m.setProp(m.rootProps, RootIface, "AllDevices", all)
 	m.setProp(m.rootProps, RootIface, "ActiveConnections", acs)
 	m.setProp(m.rootProps, RootIface, "PrimaryConnection", primary)
+	m.publishNetworkKind()
 }
 
 func (m *Manager) setProp(p *prop.Properties, iface, name string, v any) {
