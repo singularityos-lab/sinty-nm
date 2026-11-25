@@ -1,8 +1,8 @@
-github.com/godbus/dbus/v5 v5.1.0 h1:4KLkAxT3aOY8Li4FRJe/KvhoNFFxo0m6fNuFUO8QJUk=
-github.com/godbus/dbus/v5 v5.1.0/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
+github.com/godbus/dbus/v5 v5.2.2 h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=
+github.com/godbus/dbus/v5 v5.2.2/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
 github.com/mirkobrombin/atomloops v0.2.10-0.20261124173743-7a06152b95de h1:PEyH5/hnvXsELuZ4Nxrh5jSIoRD4nT3326VLjPImGcg=
 github.com/mirkobrombin/atomloops v0.2.10-0.20261124173743-7a06152b95de/go.mod h1:18MprTBFQSIFeYCnzhsK7grT9e3E7Yxao1gE+mG4bgY=
-github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261124190041-c7419766d06e h1:/0V+ckqP2Z4rqbfQWhTg0kcl4LCATgOYxQxQf2wj7DE=
-github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261124190041-c7419766d06e/go.mod h1:1y9eGHHWkbi4hIVqp5mb0eZTDDrSZ35zfl1dWZkUAmg=
+github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261125221814-9be3a9dc4476 h1:wV3Fg5X58VNcwgcG6Na18hV+pXijQRPVZ1mioX9TfcY=
+github.com/singularityos-lab/libsingularity/src/system/core/go v0.0.0-20261125221814-9be3a9dc4476/go.mod h1:xcDhgqbRfCWp+tX052LmN5JltZ72SWiTnFTm0jURylo=
 golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
 golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
