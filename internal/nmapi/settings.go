@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -186,6 +188,9 @@ func (s *Settings) add(settings map[string]map[string]dbus.Variant) (*SettingsCo
 	if settings["connection"] == nil {
 		return nil, fmt.Errorf("connection settings missing")
 	}
+	if err := checkSettings(settings); err != nil {
+		return nil, err
+	}
 	uuid := variantString(settings["connection"], "uuid")
 	if uuid == "" {
 		uuid = newUUID()
@@ -359,6 +364,9 @@ func (sc *SettingsConnection) GetSecrets(settingName string) (map[string]map[str
 
 // Update replaces the profile settings and rewrites the keyfile.
 func (sc *SettingsConnection) Update(settings map[string]map[string]dbus.Variant) *dbus.Error {
+	if err := checkSettings(settings); err != nil {
+		return dbus.NewError("org.freedesktop.NetworkManager.Settings.Connection.InvalidSetting", []interface{}{err.Error()})
+	}
 	sc.mu.Lock()
 	keepSecrets(settings, sc.settings)
 	sc.settings = settings
@@ -655,15 +663,68 @@ func writeKeyfile(path string, settings map[string]map[string]dbus.Variant) erro
 func keyfileValue(v dbus.Variant) string {
 	switch val := v.Value().(type) {
 	case []byte:
-		return string(val)
+		if plainValue(string(val)) {
+			return string(val)
+		}
+		parts := make([]string, len(val))
+		for i, b := range val {
+			parts[i] = strconv.Itoa(int(b))
+		}
+		return "@ay [" + strings.Join(parts, ", ") + "]"
 	case string:
-		return val
+		if plainValue(val) {
+			return val
+		}
+		return "@s " + strconv.Quote(val)
 	default:
 		return "@" + v.Signature().String() + " " + v.String()
 	}
 }
 
+func plainValue(s string) bool {
+	if !utf8.ValidString(s) || s != strings.TrimSpace(s) || strings.HasPrefix(s, "@") || strings.HasPrefix(s, "[") {
+		return false
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func checkSettings(settings map[string]map[string]dbus.Variant) error {
+	for g, keys := range settings {
+		if !validName(g) {
+			return fmt.Errorf("invalid setting name %q", g)
+		}
+		for k := range keys {
+			if !validName(k) {
+				return fmt.Errorf("invalid property name %q in %s", k, g)
+			}
+		}
+	}
+	return nil
+}
+
 func keyfileVariant(val string) dbus.Variant {
+	if strings.HasPrefix(val, "@s ") {
+		if s, err := strconv.Unquote(val[3:]); err == nil {
+			return dbus.MakeVariant(s)
+		}
+	}
 	if strings.HasPrefix(val, "@") {
 		if sp := strings.IndexByte(val, ' '); sp > 1 {
 			if sig, err := dbus.ParseSignature(val[1:sp]); err == nil {
@@ -710,6 +771,12 @@ func readKeyfileLegacy(path string) (map[string]map[string]dbus.Variant, bool, e
 		key := strings.TrimSpace(line[:eq])
 		val := strings.TrimSpace(line[eq+1:])
 		if group == "802-11-wireless" && key == "ssid" {
+			if strings.HasPrefix(val, "@ay ") {
+				if v := keyfileVariant(val); v.Signature().String() == "ay" {
+					out[group][key] = v
+					continue
+				}
+			}
 			out[group][key] = dbus.MakeVariant([]byte(val))
 			continue
 		}
