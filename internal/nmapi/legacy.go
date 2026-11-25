@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/gvariant"
 )
 
 // Profiles written before typed keyfile values stored list settings in Go's
@@ -99,7 +100,7 @@ func legacyPairs(s string) (map[string]dbus.Variant, bool) {
 		rest := s[colon+1:]
 		n := valueEnd(rest)
 		raw := strings.TrimSpace(rest[:n])
-		v, err := dbus.ParseVariant(raw, dbus.Signature{})
+		v, err := gvariant.Parse(raw, dbus.Signature{})
 		if err != nil {
 			return nil, false
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/godbus/dbus/v5/prop"
+	"github.com/singularityos-lab/libsingularity/src/system/core/go/gvariant"
 
 	"github.com/singularityos-lab/sinty-nm/internal/core"
 )
@@ -728,7 +729,7 @@ func keyfileVariant(val string) dbus.Variant {
 	if strings.HasPrefix(val, "@") {
 		if sp := strings.IndexByte(val, ' '); sp > 1 {
 			if sig, err := dbus.ParseSignature(val[1:sp]); err == nil {
-				if v, err := dbus.ParseVariant(val[sp+1:], sig); err == nil {
+				if v, err := gvariant.Parse(val[sp+1:], sig); err == nil {
 					return v
 				}
 			}
