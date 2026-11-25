@@ -162,8 +162,10 @@ func (r *reply) toLease() (*core.Lease, error) {
 			lease.DNS = append(lease.DNS, net.IPv4(v[i], v[i+1], v[i+2], v[i+3]))
 		}
 	}
-	if v, ok := r.opts[optDomain]; ok && len(v) > 0 {
-		lease.Domains = []string{string(v)}
+	if v, ok := r.opts[optDomain]; ok {
+		if d, ok := core.SearchDomain(string(v)); ok {
+			lease.Domains = []string{d}
+		}
 	}
 	if v, ok := r.opts[optLeaseTime]; ok && len(v) == 4 {
 		lease.LeaseSeconds = binary.BigEndian.Uint32(v)

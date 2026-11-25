@@ -96,8 +96,8 @@ func (m *dnsManager) render() []byte {
 	dseen := make(map[string]bool)
 	for _, e := range entries {
 		for _, d := range e.Domains {
-			d = strings.TrimSpace(d)
-			if d == "" || dseen[d] {
+			d, ok := core.SearchDomain(d)
+			if !ok || dseen[d] {
 				continue
 			}
 			dseen[d] = true
