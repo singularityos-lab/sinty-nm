@@ -327,7 +327,16 @@ func (d *Device) updateLink(li core.LinkInfo) {
 		d.autoWired = false // cable unplugged: allow a fresh autoconnect on the next carrier
 		d.autoTries = 0
 	}
+	active := d.activeConn
 	d.mu.Unlock()
+	if !li.Carrier && was && active != nullPath {
+		d.m.mu.Lock()
+		ac := d.m.activeConns[active]
+		d.m.mu.Unlock()
+		if ac != nil {
+			d.m.deactivateBecause(ac, devReasonCarrier)
+		}
+	}
 	// Carrier just came up (cable plugged, or link negotiated at boot): bring the wired
 	// link online the way NM's default wired autoconnect does. onLinkEvent handles the
 	// device-first-seen case; this handles a later carrier transition on a known device.

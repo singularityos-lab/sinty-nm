@@ -49,6 +49,7 @@ const (
 	devReasonNone          uint32 = 0
 	devReasonNowManaged    uint32 = 2
 	devReasonUserRequested uint32 = 39
+	devReasonCarrier       uint32 = 40
 )
 
 // NMActiveConnectionState.

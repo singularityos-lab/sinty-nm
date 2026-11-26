@@ -107,3 +107,73 @@ func (l *recordingLink) last() net.IP {
 func (*recordingLink) LinkByName(name string) (core.LinkInfo, error) {
 	return core.LinkInfo{Index: 4, Name: name, Kind: core.KindEthernet, Up: true}, nil
 }
+
+type gatewayDHCP struct {
+	mu    sync.Mutex
+	tries int
+}
+
+func (d *gatewayDHCP) Acquire(context.Context, string, net.HardwareAddr) (*core.Lease, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tries++
+	return &core.Lease{IP: net.IPv4(10, 0, 2, 15), PrefixLen: 24, Gateway: net.IPv4(10, 0, 2, 2)}, nil
+}
+func (*gatewayDHCP) Release(string) error     { return nil }
+func (*gatewayDHCP) Bound(string) *core.Lease { return nil }
+
+func (d *gatewayDHCP) acquired() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.tries
+}
+
+type routeLink struct {
+	recordingLink
+	routes int
+}
+
+func (l *routeLink) AddRoute(int, core.RouteInfo) error {
+	l.mu.Lock()
+	l.routes++
+	l.mu.Unlock()
+	return nil
+}
+
+func (l *routeLink) defaultRoutes() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.routes
+}
+
+func TestCarrierReturnRestoresTheDefaultRoute(t *testing.T) {
+	dh := &gatewayDHCP{}
+	link := &routeLink{}
+	m, err := New(privateBus(t), Backends{Link: link, Wifi: &fakeWifi{}, DHCP: dh, DNS: fakeDNS{}, RFKill: fakeRF{}, Conn: fakeConn{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Export(); err != nil {
+		t.Fatal(err)
+	}
+	dev := m.devByIface["usb0"]
+	up := core.LinkInfo{Index: 4, Name: "usb0", Kind: core.KindEthernet, Up: true, Carrier: true}
+	down := core.LinkInfo{Index: 4, Name: "usb0", Kind: core.KindEthernet, Up: false, Carrier: false}
+
+	dev.updateLink(up)
+	waitFor(t, "first default route", func() bool { return link.defaultRoutes() == 1 })
+	for flap := 2; flap <= 4; flap++ {
+		dev.updateLink(down)
+		dev.mu.Lock()
+		active := dev.activeConn
+		dev.mu.Unlock()
+		if active != nullPath {
+			t.Fatalf("flap %d: connection still active without carrier", flap)
+		}
+		dev.updateLink(up)
+		waitFor(t, "default route after the carrier returns", func() bool { return link.defaultRoutes() == flap })
+	}
+	if got := dh.acquired(); got != 4 {
+		t.Fatalf("leases acquired: %d", got)
+	}
+}

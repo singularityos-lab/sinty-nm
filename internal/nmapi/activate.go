@@ -329,6 +329,12 @@ func (m *Manager) dropIP4(dev *Device) {
 // deactivate tears down an active connection: disconnect/remove the mechanism, flush L3,
 // revert DNS, drop the objects, and settle the device back to disconnected.
 func (m *Manager) deactivate(ac *ActiveConnection) {
+	m.deactivateBecause(ac, devReasonUserRequested)
+}
+
+// deactivateBecause tears the connection down for reason. A lost carrier leaves the
+// device unavailable rather than disconnected, as NetworkManager reports it.
+func (m *Manager) deactivateBecause(ac *ActiveConnection, reason uint32) {
 	m.mu.Lock()
 	if ac.gone {
 		m.mu.Unlock()
@@ -341,9 +347,9 @@ func (m *Manager) deactivate(ac *ActiveConnection) {
 		ac.cancel()
 	}
 	dev := ac.device
-	ac.setState(acStateDeactivating, devReasonUserRequested)
+	ac.setState(acStateDeactivating, reason)
 	if dev != nil {
-		dev.setState(devStateDeactivating, devReasonUserRequested)
+		dev.setState(devStateDeactivating, reason)
 		switch dev.kind {
 		case core.KindWifi:
 			_ = m.b.Wifi.Disconnect(dev.iface)
@@ -363,10 +369,14 @@ func (m *Manager) deactivate(ac *ActiveConnection) {
 		m.primary = nullPath
 	}
 	m.mu.Unlock()
-	ac.setState(acStateDeactivated, devReasonUserRequested)
+	ac.setState(acStateDeactivated, reason)
 	ac.unexport()
 	if dev != nil {
-		dev.setState(devStateDisconnected, devReasonUserRequested)
+		end := devStateDisconnected
+		if reason == devReasonCarrier {
+			end = devStateUnavailable
+		}
+		dev.setState(end, reason)
 	}
 	m.refreshRootLists()
 }
