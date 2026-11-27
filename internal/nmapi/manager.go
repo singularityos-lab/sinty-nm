@@ -219,17 +219,17 @@ func (m *Manager) Run(ctx context.Context) error {
 }
 
 const (
-	connectivityInterval    = 5 * time.Minute
-	rescanInterval          = 20 * time.Second
-	rescanConnectedInterval = 2 * time.Minute
+	connectivityInterval = 5 * time.Minute
+	rescanInterval       = 20 * time.Second
+	scanInterest         = 2 * time.Minute
 )
 
-// rescanLoop periodically re-scans every wifi device so the AP list reflects the current
-// airspace without a client having to call RequestScan.
+// rescanLoop keeps re-scanning a wifi device for a while after a client asked for a
+// scan, so the AP list stays fresh while someone is looking at it. iwd scans on its own
+// to join known networks, so nothing else needs the radio woken.
 func (m *Manager) rescanLoop(ctx context.Context, wifiDevs []*Device) {
 	ticker := time.NewTicker(rescanInterval)
 	defer ticker.Stop()
-	last := map[*Device]time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -237,16 +237,18 @@ func (m *Manager) rescanLoop(ctx context.Context, wifiDevs []*Device) {
 		case now := <-ticker.C:
 			for _, d := range wifiDevs {
 				d.mu.Lock()
-				connected := d.state == devStateActivated
+				wanted := d.scanWanted
 				d.mu.Unlock()
-				if connected && now.Sub(last[d]) < rescanConnectedInterval {
-					continue
+				if rescanDue(now, wanted) {
+					d.scanAndPopulate()
 				}
-				last[d] = now
-				d.scanAndPopulate()
 			}
 		}
 	}
+}
+
+func rescanDue(now, wanted time.Time) bool {
+	return !wanted.IsZero() && now.Sub(wanted) <= scanInterest
 }
 
 // rootNode is the introspection data for the root manager object.

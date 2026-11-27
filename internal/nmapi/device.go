@@ -2,6 +2,7 @@ package nmapi
 
 import (
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -40,6 +41,7 @@ type Device struct {
 	dhcp4      dbus.ObjectPath
 	ip4obj     *IPConfig
 	state      uint32
+	scanWanted time.Time
 	carrier    bool // last-known link carrier (ethernet)
 	autoWired  bool // a default wired autoconnect has been kicked for the current carrier
 	autoTries  int
@@ -252,6 +254,9 @@ func (d *Device) RequestScan(options map[string]dbus.Variant) *dbus.Error {
 	if d.kind != core.KindWifi {
 		return dbus.NewError("org.freedesktop.NetworkManager.Device.NotAllowed", []interface{}{"not a wifi device"})
 	}
+	d.mu.Lock()
+	d.scanWanted = time.Now()
+	d.mu.Unlock()
 	go d.scanAndPopulate()
 	return nil
 }
